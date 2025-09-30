@@ -24,6 +24,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool paused = false;
   String? errorMsg;
   late StreamSubscription<RecordingEvent> sub;
+  List<AudioDevice>? devices;
   // Configure three bands with your desired colors.
   final bands = <BandConfig>[
     BandConfig(
@@ -115,12 +116,24 @@ class _SettingsPageState extends State<SettingsPage> {
             data,
           );
           break;
+        case DevicesInfoEvent(:final outputDevices, :final inputDevices):
+          setState(() {
+            devices ??= [];
+            devices!.addAll([...outputDevices, ...inputDevices]);
+            devices!.toSet();
+          });
+          break;
       }
     });
+
+    if (devices == null) {
+      AudioBridge.instance.getDevices();
+    }
   }
 
   @override
-  void dispose() {
+  void dispose() async {
+    await _stop();
     sub.cancel();
     super.dispose();
   }
@@ -150,6 +163,22 @@ class _SettingsPageState extends State<SettingsPage> {
       appBar: AppBar(title: const Text("Audio Visualizer")),
       body: Column(
         children: [
+          Text(devices?.first.name ?? ""),
+          ElevatedButton(
+            onPressed: () async {
+              await AudioBridge.instance.getDevices();
+            },
+            child: Text("device get"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await AudioBridge.instance.start({
+                "deviceId": devices?.first.id,
+                "captureType": "systemAudio",
+              });
+            },
+            child: Text("Test"),
+          ),
           ElevatedButton(
             onPressed: running ? _stop : _requestAndStart,
             child: Text(running ? "Stop" : "Start"),

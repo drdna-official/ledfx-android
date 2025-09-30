@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
 
 /// Sealed union of all events from the native bridge
@@ -10,6 +11,58 @@ class AudioEvent extends RecordingEvent {
   final Uint8List data;
   const AudioEvent(this.data);
 }
+
+class DevicesInfoEvent extends RecordingEvent {
+  final List<AudioDevice> inputDevices;
+  final List<AudioDevice> outputDevices;
+  DevicesInfoEvent(Map<String, dynamic> data)
+    : inputDevices = (data['input'] as List? ?? [])
+          .map((device) => AudioDevice.fromMap(device.cast<String, dynamic>()))
+          .toList(),
+      outputDevices = (data['output'] as List? ?? [])
+          .map((device) => AudioDevice.fromMap(device.cast<String, dynamic>()))
+          .toList();
+}
+
+// Audio device model
+class AudioDevice extends Equatable {
+  final String id;
+  final String name;
+  final String description;
+  final bool isActive;
+  final bool isDefault;
+  final AudioDeviceType type;
+
+  const AudioDevice({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.isActive,
+    required this.isDefault,
+    required this.type,
+  });
+
+  factory AudioDevice.fromMap(Map<String, dynamic> map) {
+    return AudioDevice(
+      id: map['id'] ?? '',
+      name: map['name'] ?? '',
+      description: map['description'] ?? '',
+      isActive: map['isActive'] ?? false,
+      isDefault: map['isDefault'] ?? false,
+      type: AudioDeviceType.values.firstWhere(
+        (e) => e.name == map['type'],
+        orElse: () => AudioDeviceType.input,
+      ),
+    );
+  }
+
+  @override
+  List<Object?> get props => [id];
+}
+
+enum AudioDeviceType { input, output }
+
+enum AudioCaptureType { microphone, systemAudio }
 
 class StateEvent extends RecordingEvent {
   /// e.g. "started", "paused", "resumed", "stopped"
@@ -36,6 +89,10 @@ class AudioBridge {
           case "error":
             _controller.add(ErrorEvent(event["message"]));
             break;
+          case "devicesInfo":
+            _controller.add(
+              DevicesInfoEvent(Map<String, dynamic>.from(event["devices"])),
+            );
         }
       }
     });
@@ -61,8 +118,10 @@ class AudioBridge {
   }
 
   // Convenience methods for native calls
-  Future<bool?> start() async =>
-      await _method.invokeMethod<bool?>('startRecording');
+  Future<bool?> getDevices() async =>
+      await _method.invokeMethod<bool?>('requestDeviceList');
+  Future<bool?> start([Map<String, dynamic>? args]) async =>
+      await _method.invokeMethod<bool?>('startRecording', args);
   Future<bool?> stop() async => await _method.invokeMethod('stopRecording');
   Future<bool?> pause() async => await _method.invokeMethod('pauseRecording');
   Future<bool?> resume() async => await _method.invokeMethod('resumeRecording');

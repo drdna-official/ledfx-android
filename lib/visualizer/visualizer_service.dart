@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show min;
 import 'package:flutter/foundation.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -76,37 +77,21 @@ class AudioVisualizerProcessor {
     _buffer.add(chunk);
 
     final data = _buffer.toBytes();
-    final samplesAvailable = data.lengthInBytes ~/ 2;
-    int readSamples = 0;
 
-    while (samplesAvailable - readSamples >= cfg.windowSize) {
-      final startByte = readSamples * 2;
-      final endByte = startByte + cfg.windowSize * 2;
-      final view = ByteData.sublistView(
-        Uint8List.sublistView(data, startByte, endByte),
-      );
-      final frame = Int16List(cfg.windowSize);
-      for (int i = 0; i < cfg.windowSize; i++) {
-        frame[i] = view.getInt16(i * 2, Endian.little);
-      }
-
-      // Compute band energies + RGB frame
-      final energies = VisualMapper.estimateBandEnergies(bands, cfg, frame);
-      final rgb = _mapper.makeFrame(energies);
-      results.add(rgb);
-
-      readSamples += cfg.hopSize;
+    final view = ByteData.sublistView(
+      Uint8List.sublistView(data, 0, data.lengthInBytes),
+    );
+    final frame = Int16List(cfg.windowSize);
+    for (int i = 0; i < cfg.windowSize; i++) {
+      frame[i] = view.getInt16(i * 2, Endian.little);
     }
 
-    // Keep leftover samples
-    final keepBytes = (samplesAvailable - readSamples) * 2;
-    final leftover = Uint8List.sublistView(
-      data,
-      readSamples * 2,
-      readSamples * 2 + keepBytes,
-    );
+    // Compute band energies + RGB frame
+    final energies = VisualMapper.estimateBandEnergies(bands, cfg, frame);
+    final rgb = _mapper.makeFrame(energies);
+    results.add(rgb);
+
     _buffer.clear();
-    _buffer.add(leftover);
 
     return results;
   }
