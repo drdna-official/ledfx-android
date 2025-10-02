@@ -1,18 +1,34 @@
 import 'dart:developer';
 import 'dart:io';
+import 'dart:math' hide log;
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/devices/packets.dart';
+import 'package:ledfx/src/effects/utils.dart';
+import 'package:ledfx/src/events.dart';
+import 'package:ledfx/src/virtual.dart';
 import 'package:ledfx/utils.dart';
 import 'package:n_dimensional_array/n_dimensional_array.dart';
 
 abstract class Device {
-  Device({required this.name, this.fps = 60, required this.pixelCount});
+  final String id;
+  final String name;
+  final LEDFx ledfx;
+  final int centerOffset;
+  // TODO: - Implement refresh_rate
+  late int refreshRate;
+  Device({
+    required this.id,
+    required this.name,
+    required this.ledfx,
+    int? refreshRate,
+    this.centerOffset = 0,
+    required this.pixelCount,
+  }) {
+    this.refreshRate = refreshRate ?? 60;
+  }
 
-  String name;
-  // final String? icon;
-  // TODO: - Implement FPS
-  int fps;
   int pixelCount;
 
   bool _active = false;
@@ -23,8 +39,10 @@ abstract class Device {
 
   NdArray? _pixels;
 
+  late List<Virtual> _virtualsObjs;
+
   void activate() {
-    _pixels = NdArray.fromList(List.filled(pixelCount, List.filled(3, 0)));
+    _pixels = NdArray.fromList(List.filled(pixelCount, Float32List(3)));
     _active = true;
   }
 
@@ -63,19 +81,42 @@ abstract class Device {
       }
     }
 
-    //     if self.priority_virtual:
-    //     if virtual_id == self.priority_virtual.id:
-    //         frame = self.assemble_frame()
-    //         self.flush(frame)
-    //         # _LOGGER.debug(f"Device {self.id} flushed by Virtual {virtual_id}")
+    if (priorityVirtual != null) {
+      if (virtualID == priorityVirtual!.id) {
+        final frame = assembleFrame();
+        if (frame == null) return;
+        flush(frame);
+        ledfx.events.fireEvent(DeviceUpdateEvent(id, frame));
+      }
+    }
+  }
 
-    //         self._ledfx.events.fire_event(
-    //             DeviceUpdateEvent(self.id, frame)
-    //         )
-    // else:
-    //     _LOGGER.warning(
-    //         f"Flush skipped as {self.id} has no priority_virtual"
-    //     )
+  NdArray? assembleFrame() {
+    if (_pixels == null) return null;
+    List<Float32List> frame = _pixels!.data as List<Float32List>;
+    if (centerOffset > 0) frame = rollList(frame, centerOffset);
+    return NdArray.fromList(frame);
+  }
+
+  // Returns the first virtual that has the highest refresh rate of all virtuals
+  // associated with this device
+  Virtual? _cachedPriorityVirtual;
+  Virtual? get priorityVirtual {
+    if (_cachedPriorityVirtual != null) return _cachedPriorityVirtual;
+
+    if (!_virtualsObjs.any((v) => v.active)) return null;
+
+    final refreshRate = _virtualsObjs
+        .where((v) => v.active)
+        .map((v) => v.refreshRate)
+        .reduce(max);
+
+    final Virtual priority = _virtualsObjs.firstWhere(
+      (virtual) => virtual.refreshRate == refreshRate,
+    );
+
+    _cachedPriorityVirtual = priority;
+    return _cachedPriorityVirtual;
   }
 }
 
@@ -83,8 +124,10 @@ abstract class NetworkedDevice extends Device {
   NetworkedDevice({
     required super.name,
     required super.pixelCount,
-    super.fps,
+    super.refreshRate,
     required this.ipAddr,
+    required super.id,
+    required super.ledfx,
   });
 
   String ipAddr;
@@ -135,8 +178,10 @@ abstract class UDPDevice extends NetworkedDevice {
     required super.name,
     required super.pixelCount,
     required super.ipAddr,
-    super.fps,
+    super.refreshRate,
     required this.port,
+    required super.id,
+    required super.ledfx,
   });
 
   int port;
@@ -163,10 +208,12 @@ class RealtimeUDPDevice extends UDPDevice {
     required super.pixelCount,
     required super.ipAddr,
     required super.port,
-    super.fps,
+    super.refreshRate,
     required this.udpPacketType,
     this.timeout = 1,
     this.minimizeTraffic = true,
+    required super.id,
+    required super.ledfx,
   }) : lastFrame = NdArray.fromList(
          List.filled(pixelCount, List.filled(3, -1)),
        ),
@@ -249,7 +296,8 @@ class RealtimeUDPDevice extends UDPDevice {
   void transmitPacket(packet, bool frameIsSame) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     if (frameIsSame) {
-      final halfTimeout = ((((timeout * fps) - 1) ~/ 2) / fps) * 1000;
+      final halfTimeout =
+          ((((timeout * refreshRate) - 1) ~/ 2) / refreshRate) * 1000;
 
       if (timestamp > lastFrameSendTime + halfTimeout) {
         if (_destination != null) {

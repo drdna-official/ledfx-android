@@ -1,7 +1,7 @@
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
 const int FFT_SIZE = 4096;
-const int MIC_RATE = 30000;
+const int MIC_RATE = 44100;
 const int MAX_FREQ = MIC_RATE ~/ 2;
 const int MIN_FREQ = 20;
 const int MIN_FREQ_DIFFERENCE = 50;

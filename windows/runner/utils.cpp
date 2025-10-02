@@ -85,3 +85,30 @@ std::string Utf8FromLPCWSTR(LPCWSTR wide)
   WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), len, nullptr, nullptr);
   return result;
 }
+
+// Helper functions for string conversion
+std::string wideToUtf8(const std::wstring &wide)
+{
+  if (wide.empty())
+    return std::string();
+
+  int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, &wide[0],
+                                       (int)wide.size(), nullptr, 0, nullptr, nullptr);
+  std::string utf8(sizeNeeded, 0);
+  WideCharToMultiByte(CP_UTF8, 0, &wide[0], (int)wide.size(),
+                      &utf8[0], sizeNeeded, nullptr, nullptr);
+  return utf8;
+}
+
+std::wstring utf8ToWide(const std::string &utf8)
+{
+  if (utf8.empty())
+    return std::wstring();
+
+  int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, &utf8[0],
+                                       (int)utf8.size(), nullptr, 0);
+  std::wstring wide(sizeNeeded, 0);
+  MultiByteToWideChar(CP_UTF8, 0, &utf8[0], (int)utf8.size(),
+                      &wide[0], sizeNeeded);
+  return wide;
+}

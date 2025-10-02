@@ -14,6 +14,8 @@ void CreateAndAttachConsole();
 // encoded in UTF-8. Returns an empty std::string on failure.
 std::string Utf8FromUtf16(const wchar_t *utf16_string);
 std::string Utf8FromLPCWSTR(LPCWSTR wide);
+std::string wideToUtf8(const std::wstring &wide);
+std::wstring utf8ToWide(const std::string &utf8);
 
 // Gets the command line arguments passed in as a std::vector<std::string>,
 // encoded in UTF-8. Returns an empty std::vector<std::string> on failure.

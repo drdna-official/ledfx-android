@@ -6,6 +6,7 @@ import 'package:ledfx/src/effects/audio.dart';
 import 'package:ledfx/src/effects/const.dart';
 import 'package:ledfx/src/effects/dsp.dart';
 import 'package:ledfx/src/effects/math.dart';
+import 'package:ledfx/src/effects/mel_utils.dart';
 import 'package:ledfx/src/effects/utils.dart';
 
 class MelbankConfig {
@@ -109,7 +110,23 @@ class Melbanks {
     minVolume = audio.minVolume;
   }
 
-  execute() {}
+  execute() {
+    final freqDomain = audio.freqDomain;
+    final volumeThreshould = (audio.volume(filtered: true) > minVolume);
+
+    if (volumeThreshould) {
+      for (final (i, proc) in melbankProcessors.indexed) {
+        proc.execute(freqDomain, melbanks[i], melbanksFiltered[i]);
+      }
+    } else {
+      for (final melbank in melbanks) {
+        melbank.fillRange(0, melbank.length, 0.0);
+      }
+      for (final melbank in melbanksFiltered) {
+        melbank.fillRange(0, melbank.length, 0.0);
+      }
+    }
+  }
 }
 
 // A single Melbank
@@ -176,8 +193,41 @@ class Melbank {
     commonFilter = ExpFilter(alphaDecay: 0.99, alphaRise: 0.01);
     diffFilter = ExpFilter(alphaDecay: 0.15, alphaRise: 0.99);
   }
+  // computes the melbank curve for frequency domain .
+  void execute(
+    Cvec freqDomain,
+    Float32List melbank,
+    Float32List filteredMelbank,
+  ) {
+    copyListContents(melbank, filterBank.apply(freqDomain));
+    melbank.setAll(0, filterBank.apply(freqDomain));
 
-  void execute() {}
+    for (int i = 0; i < melbank.length; i++) {
+      melbank[i] = pow(melbank[i], powerFactor).toDouble();
+    }
+    melGain.update(maxOfList(fastBlurArray(melbank, 1.0)));
+
+    final double gainValue = melGain.value.toDouble();
+    for (int i = 0; i < melbank.length; i++) {
+      // Check for near-zero division, which is crucial for stability
+      if (gainValue.abs() > 1e-9) {
+        melbank[i] /= gainValue;
+      } else {
+        melbank[i] = 0.0; // Prevent division by zero
+      }
+    }
+
+    List<double> smoothedBanks = melSmoothing.update(melbank);
+    copyListContents(melbank, smoothedBanks);
+
+    commonFilter.update(melbank);
+
+    List<double> differenceArray = List<double>.generate(melbank.length, (i) {
+      return melbank[i] - commonFilter.value[i];
+    });
+    List<double> diffFiltered = diffFilter.update(differenceArray);
+    copyListContents(filteredMelbank, diffFiltered);
+  }
 }
 
 double hzTOmatt(double freq) {

@@ -13,13 +13,9 @@ class AudioEvent extends RecordingEvent {
 }
 
 class DevicesInfoEvent extends RecordingEvent {
-  final List<AudioDevice> inputDevices;
-  final List<AudioDevice> outputDevices;
-  DevicesInfoEvent(Map<String, dynamic> data)
-    : inputDevices = (data['input'] as List? ?? [])
-          .map((device) => AudioDevice.fromMap(device.cast<String, dynamic>()))
-          .toList(),
-      outputDevices = (data['output'] as List? ?? [])
+  final List<AudioDevice> audioDevices;
+  DevicesInfoEvent(List data)
+    : audioDevices = (data as List? ?? [])
           .map((device) => AudioDevice.fromMap(device.cast<String, dynamic>()))
           .toList();
 }
@@ -90,9 +86,7 @@ class AudioBridge {
             _controller.add(ErrorEvent(event["message"]));
             break;
           case "devicesInfo":
-            _controller.add(
-              DevicesInfoEvent(Map<String, dynamic>.from(event["devices"])),
-            );
+            _controller.add(DevicesInfoEvent(List.from(event["devices"])));
         }
       }
     });

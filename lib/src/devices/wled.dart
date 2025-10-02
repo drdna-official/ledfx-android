@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:ledfx/src/devices/device.dart';
 import 'package:n_dimensional_array/domain/models/nd_array.dart';
 import 'package:http/http.dart' as http;
+import 'package:nanoid/nanoid.dart';
 
 enum WLEDSyncMode { udp, ddp, e131 }
 
@@ -13,9 +14,11 @@ class WLEDDevice extends NetworkedDevice {
     required super.name,
     required super.pixelCount,
     required super.ipAddr,
-    super.fps,
+    super.refreshRate,
     required this.syncMode,
     this.timeout = 1,
+    required super.id,
+    required super.ledfx,
 
     // required int port,
     // required String udpPacketType,
@@ -50,6 +53,7 @@ class WLEDDevice extends NetworkedDevice {
 
     subdevice = switch (syncMode) {
       WLEDSyncMode.udp => RealtimeUDPDevice(
+        id: nanoid(10),
         name: name,
         pixelCount: pixelCount,
         ipAddr: ipAddr,
@@ -57,23 +61,27 @@ class WLEDDevice extends NetworkedDevice {
         timeout: timeout,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
-        fps: fps,
+        ledfx: ledfx,
       ),
       WLEDSyncMode.ddp => RealtimeUDPDevice(
+        id: nanoid(10),
         name: name,
         pixelCount: pixelCount,
         ipAddr: ipAddr,
         port: 21324,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
+        ledfx: ledfx,
       ),
       WLEDSyncMode.e131 => RealtimeUDPDevice(
+        id: nanoid(10),
         name: name,
         pixelCount: pixelCount,
         ipAddr: ipAddr,
         port: 21324,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
+        ledfx: ledfx,
       ),
     };
     subdevice!.destination = destination;

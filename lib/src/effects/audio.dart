@@ -1,8 +1,8 @@
-import 'dart:async' show Timer;
+import 'dart:async' show StreamSubscription, Timer;
 import 'dart:math' show max, min;
 
 import 'package:flutter/foundation.dart';
-import 'package:ledfx/audio_bridge.dart';
+import 'package:ledfx/src/platform/audio_bridge.dart';
 import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/effects/const.dart';
 import 'package:ledfx/src/effects/dsp.dart';
@@ -29,7 +29,11 @@ abstract class AudioInputSource {
     this.delay = Duration.zero,
   });
 
+  List<AudioDevice>? audioDevices;
+  int activeAudioDeviceIndex = 0;
+
   bool _audioStreamActive = false;
+  StreamSubscription<RecordingEvent>? _streamSub;
   final List<VoidCallback> _callbacks = [];
   Timer? _timer;
   int _subscriberThreshould = 0;
@@ -57,33 +61,48 @@ abstract class AudioInputSource {
   late DigitalFilter preEmphasis;
   FixedSizeQueue? delayQueue;
 
+  final List<double> _audioEventBuffer = [];
   void activate() {
     // setup audio bridge event stream
     _audio ??= AudioBridge.instance;
-    _audio!.events.listen((event) {
+    _streamSub = _audio!.events.listen((event) {
       switch (event) {
         case StateEvent(:final state):
           switch (state) {
             case "recordingStarted":
+              debugPrint("recording started");
               break;
             case "recordingPaused":
+              debugPrint("recording paused");
               break;
             case "recordingResumed":
+              debugPrint("recording resumed");
               break;
             case "recordingStopped":
+              debugPrint("recording stopped");
               break;
           }
           break;
 
-        case ErrorEvent(:final message):
+        case ErrorEvent(:final String message):
+          debugPrint(message);
           break;
 
-        case AudioEvent(:final data):
+        case AudioEvent(:final Uint8List data):
+          // Convert and accumulate into frames
+          final frames = processAudioByteChunk(data);
+          for (final frame in frames) {
+            audioSampleCallback(frame);
+          }
           break;
-        case DevicesInfoEvent(:final outputDevices, :final inputDevices):
+        case DevicesInfoEvent(:final audioDevices):
+          this.audioDevices = audioDevices;
+          notifySubscribers();
           break;
       }
     });
+    // get devices list
+    _audio!.getDevices();
 
     // Setup a pre-emphasis filter to balance the input volume of lows to highs
     preEmphasis = DigitalFilter(3);
@@ -111,7 +130,89 @@ abstract class AudioInputSource {
   }
 
   void deactivate() {
+    _streamSub?.cancel();
+    _streamSub = null;
     _audioStreamActive = false;
+  }
+
+  void queryDevices() {
+    if (_audio == null) {
+      deactivate();
+      activate();
+    }
+    _audio!.getDevices();
+  }
+
+  void setActiveDevice(int index) {
+    activeAudioDeviceIndex = index;
+  }
+
+  void startAudioCapture([int? deviceIndex]) {
+    if (deviceIndex != null) setActiveDevice(deviceIndex);
+
+    if (_audio == null) {
+      deactivate();
+      activate();
+    }
+    if (audioDevices == null) queryDevices();
+    if (audioDevices!.length > activeAudioDeviceIndex) {
+      _audio!.start({
+        "deviceId": audioDevices![activeAudioDeviceIndex].id,
+        "captureType": "loopback",
+      });
+      _audioStreamActive = true;
+    }
+  }
+
+  /// Convert PCM16 bytes → normalized float samples
+  Float32List pcm16ToFloat32(Uint8List bytes) {
+    final bd = ByteData.sublistView(bytes);
+    final samples = Float32List(bytes.lengthInBytes ~/ 2);
+    for (int i = 0; i < samples.length; i++) {
+      samples[i] = bd.getInt16(i * 2, Endian.little) / 32768.0;
+    }
+    return samples;
+  }
+
+  /// Process new PCM chunk into fixed frames
+  List<Float32List> processAudioByteChunk(Uint8List bytes) {
+    final samples = pcm16ToFloat32(bytes);
+    _audioEventBuffer.addAll(samples);
+    final int frameSize = MIC_RATE ~/ sampleRate;
+
+    final frames = <Float32List>[];
+    while (_audioEventBuffer.length >= frameSize) {
+      frames.add(Float32List.fromList(_audioEventBuffer.sublist(0, frameSize)));
+      _audioEventBuffer.removeRange(0, frameSize);
+    }
+    return frames;
+  }
+
+  void audioSampleCallback(Float32List frame) {
+    final int frameSize = MIC_RATE ~/ sampleRate;
+
+    if (frame.length != frameSize) {
+      debugPrint("Discarding malformed audio frame");
+      return;
+    }
+
+    if (delayQueue != null && delayQueue!.length > 0) {
+      try {
+        final canput = delayQueue!.put(frame);
+        if (!canput) throw Error();
+      } catch (e) {
+        _rawAudioSample = delayQueue!.get();
+        delayQueue!.put(frame);
+        preProcessAudio();
+        invalidateCaches();
+        notifySubscribers();
+      }
+    } else {
+      _rawAudioSample = frame;
+      preProcessAudio();
+      invalidateCaches();
+      notifySubscribers();
+    }
   }
 
   void subscribe(VoidCallback callback) {
@@ -126,7 +227,7 @@ abstract class AudioInputSource {
   }
 
   // NOtifies all subscribers
-  void notify() {
+  void notifySubscribers() {
     for (final callback in _callbacks) {
       callback();
     }
@@ -222,11 +323,11 @@ class AudioAnalysisSource extends AudioInputSource {
     initialiseAnalysis();
 
     subscribe(melbanks.execute);
-    subscribe(setPitch);
-    subscribe(setOnset);
-    subscribe(barOscillator);
-    subscribe(volumeBeatNow);
-    subscribe(freqPower);
+    // subscribe(setPitch);
+    // subscribe(setOnset);
+    // subscribe(barOscillator);
+    // subscribe(volumeBeatNow);
+    // subscribe(freqPower);
 
     _subscriberThreshould = _callbacks.length;
   }
@@ -276,35 +377,35 @@ class AudioAnalysisSource extends AudioInputSource {
 
   @override
   void invalidateCaches() {
-    _pitch = null;
-    _onset = null;
+    // _pitch = null;
+    // _onset = null;
   }
 
-  double? _pitch;
-  double? get pitch => _pitch;
-  void setPitch() {
-    try {
-      _pitch = dsp.detectPitch(audioSample(raw: true));
-    } catch (e) {
-      debugPrint(e.toString());
-      _pitch = null;
-    }
-  }
+  // double? _pitch;
+  // double? get pitch => _pitch;
+  // void setPitch() {
+  //   try {
+  //     _pitch = dsp.detectPitch(audioSample(raw: true));
+  //   } catch (e) {
+  //     debugPrint(e.toString());
+  //     _pitch = null;
+  //   }
+  // }
 
-  bool? _onset;
-  bool? get onset => _onset;
-  void setOnset() {
-    try {
-      _onset = dsp.detectOnset(audioSample(raw: true));
-    } catch (e) {
-      debugPrint(e.toString());
-      _onset = null;
-    }
-  }
+  // bool? _onset;
+  // bool? get onset => _onset;
+  // void setOnset() {
+  //   try {
+  //     _onset = dsp.detectOnset(audioSample(raw: true));
+  //   } catch (e) {
+  //     debugPrint(e.toString());
+  //     _onset = null;
+  //   }
+  // }
 
-  void barOscillator() {}
+  // void barOscillator() {}
 
-  void volumeBeatNow() {}
+  // void volumeBeatNow() {}
 
-  void freqPower() {}
+  // void freqPower() {}
 }

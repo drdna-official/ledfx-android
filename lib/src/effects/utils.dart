@@ -1,3 +1,5 @@
+import 'dart:math';
+
 List<double> equallySpacedDoublesList(double start, double end, int count) {
   if (count <= 0) return <double>[];
   if (count == 1) return [start];
@@ -12,6 +14,55 @@ List<int> equallySpacedIntsList(int start, int end, int count) {
 
   final double step = (end - start) / (count - 1);
   return List<int>.generate(count, (i) => (start + (i * step)).toInt());
+}
+
+double maxOfList(List<double> list) {
+  if (list.isEmpty) return 0.0;
+  return list.reduce(max);
+}
+
+void copyListContents<T>(List<T> destination, List<T> source) {
+  if (destination.length != source.length) {
+    throw ArgumentError(
+      'Source and destination lists must have the same length for in-place copy.',
+    );
+  }
+  for (int i = 0; i < source.length; i++) {
+    destination[i] = source[i];
+  }
+}
+
+/// Implements the circular shift functionality, equivalent to numpy.roll(array, shift, axis=0).
+/// Shifts the elements of a list by 'offset' places.
+List<T> rollList<T>(List<T> list, int offset) {
+  if (list.isEmpty) {
+    return [];
+  }
+
+  // Calculate the actual effective shift
+  int effectiveShift = offset % list.length;
+  if (effectiveShift == 0) {
+    return List<T>.from(list); // No shift needed, return a copy
+  }
+
+  // Create a new list for the rolled result
+  List<T> rolled = List<T>.filled(list.length, list[0]);
+
+  // Determine the split point and copy the parts in reversed order
+  for (int i = 0; i < list.length; i++) {
+    // New index = (current index - shift) % length
+    // Dart's % operator can return negative results, so we use the helper to ensure a positive index.
+    int newIndex = (i + effectiveShift) % list.length;
+
+    // Ensure the index is positive (crucial for Dart's modulo behavior)
+    if (newIndex < 0) {
+      newIndex += list.length;
+    }
+
+    rolled[newIndex] = list[i];
+  }
+
+  return rolled;
 }
 
 /// A fixed-size, auto-dropping circular buffer (like Python's collections.deque(maxlen=...)).

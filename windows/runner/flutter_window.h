@@ -59,7 +59,7 @@ private:
   std::vector<std::shared_ptr<std::vector<uint8_t>>> posted_audio_events_;
   std::vector<std::shared_ptr<std::string>> posted_state_events_;
   std::vector<std::shared_ptr<std::string>> posted_error_events_;
-  std::vector<std::shared_ptr<std::map<flutter::EncodableValue, flutter::EncodableValue>>> posted_devices_events_;
+  std::vector<std::shared_ptr<std::vector<flutter::EncodableValue>>> posted_devices_events_;
 
   // WASAPI interfaces
   IMMDeviceEnumerator *device_enumerator_ = nullptr;
@@ -77,11 +77,11 @@ private:
   // Event emission helpers
   void SendAudioDataEvent(const std::vector<uint8_t> &pcm16_data);
   void SendStateEvent(const std::string &state_message);
-  void SendDevicesInfoEvent(const std::map<flutter::EncodableValue, flutter::EncodableValue> &devices_info);
+  void SendDevicesInfoEvent(const std::vector<flutter::EncodableValue> &devices_info);
   void SendErrorEvent(const std::string &error_message);
 
   // Audio device enumeration
-  std::map<flutter::EncodableValue, flutter::EncodableValue> EnumerateAudioDevices();
+  std::vector<flutter::EncodableValue> EnumerateAudioDevices();
   std::vector<flutter::EncodableValue> EnumerateDevices(EDataFlow dataFlow);
   std::string GetDeviceProperty(IMMDevice *device, const PROPERTYKEY &key);
 

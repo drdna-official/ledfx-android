@@ -233,7 +233,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   case WM_FLUTTER_DEVICES_EVENT:
   {
-    auto data = reinterpret_cast<std::map<flutter::EncodableValue, flutter::EncodableValue> *>(wparam);
+    auto data = reinterpret_cast<std::vector<flutter::EncodableValue> *>(wparam);
     if (event_sink_ && data)
     {
       std::map<flutter::EncodableValue, flutter::EncodableValue> map{
@@ -329,11 +329,11 @@ void FlutterWindow::HandleMethodCall(
       }
       if (!captureTypeOpt.has_value() || captureTypeOpt->empty())
       {
-        result->Error("MISSING_ARGUMENT", "Missing required argument: captureType - microphone | systemAudio");
+        result->Error("MISSING_ARGUMENT", "Missing required argument: captureType - capture | loopback");
         return;
       }
       int sampleRate = getIntArg("sampleRate", 44100);
-      int channels = getIntArg("channels", 2);
+      int channels = getIntArg("channels", 1);
       int bitsPerSample = getIntArg("bitsPerSample", 16);
 
       // 4. Start recording
@@ -399,16 +399,14 @@ void FlutterWindow::SendStateEvent(const std::string &state_message)
 }
 
 void FlutterWindow::SendDevicesInfoEvent(
-    const std::map<flutter::EncodableValue, flutter::EncodableValue> &devices_info)
+    const std::vector<flutter::EncodableValue> &devices_info)
 {
   if (!GetHandle())
     return;
 
-  auto data_copy = std::make_shared<
-      std::map<flutter::EncodableValue, flutter::EncodableValue>>(devices_info);
+  auto data_copy = std::make_shared<std::vector<flutter::EncodableValue>>(devices_info);
 
-  PostMessage(GetHandle(), WM_FLUTTER_DEVICES_EVENT,
-              reinterpret_cast<WPARAM>(data_copy.get()), 0);
+  PostMessage(GetHandle(), WM_FLUTTER_DEVICES_EVENT, reinterpret_cast<WPARAM>(data_copy.get()), 0);
 
   posted_devices_events_.push_back(data_copy);
 }
@@ -425,12 +423,14 @@ void FlutterWindow::SendErrorEvent(const std::string &error_message)
   posted_error_events_.push_back(msg);
 }
 
-std::map<flutter::EncodableValue, flutter::EncodableValue> FlutterWindow::EnumerateAudioDevices()
+std::vector<flutter::EncodableValue> FlutterWindow::EnumerateAudioDevices()
 {
-  std::map<flutter::EncodableValue, flutter::EncodableValue> result;
-  result[flutter::EncodableValue("input")] = flutter::EncodableValue(EnumerateDevices(eCapture));
-  result[flutter::EncodableValue("output")] = flutter::EncodableValue(EnumerateDevices(eRender));
-  return result;
+  std::vector<flutter::EncodableValue> devices;
+  auto inputDevices = EnumerateDevices(eCapture);
+  auto outputDevices = EnumerateDevices(eRender);
+  devices.insert(devices.end(), inputDevices.begin(), inputDevices.end());
+  devices.insert(devices.end(), outputDevices.begin(), outputDevices.end());
+  return devices;
 }
 
 std::vector<flutter::EncodableValue> FlutterWindow::EnumerateDevices(EDataFlow dataFlow)
@@ -576,11 +576,11 @@ void FlutterWindow::AudioCaptureThread()
   {
     try
     {
-      if (current_capture_type_ == "microphone")
+      if (current_capture_type_ == "capture")
       {
         CaptureAudio(device, false);
       }
-      else if (current_capture_type_ == "systemAudio")
+      else if (current_capture_type_ == "loopback")
       {
         CaptureAudio(device, true);
       }
@@ -606,20 +606,48 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
     return;
   }
 
+  WAVEFORMATEX custom_format = {};
+  custom_format.wFormatTag = WAVE_FORMAT_PCM;      // PCM
+  custom_format.nChannels = channels_;             // 1=Mono, 2=Stereo
+  custom_format.nSamplesPerSec = sample_rate_;     // Sample rate, e.g. 44100
+  custom_format.wBitsPerSample = bits_per_sample_; // Bit depth
+  custom_format.nBlockAlign = custom_format.nChannels * custom_format.wBitsPerSample / 8;
+  custom_format.nAvgBytesPerSec = custom_format.nSamplesPerSec * custom_format.nBlockAlign;
+  custom_format.cbSize = 0;
+
   // Get mix format
-  WAVEFORMATEX *mix_format = nullptr;
-  hr = audio_client_->GetMixFormat(&mix_format);
-  if (FAILED(hr) || !mix_format)
+  WAVEFORMATEX *mix_format = &custom_format;
+  // Check if supported
+  WAVEFORMATEX *closest_supported = nullptr;
+  HRESULT hr = audio_client_->IsFormatSupported(
+      AUDCLNT_SHAREMODE_SHARED,
+      mix_format,
+      (WAVEFORMATEX **)&closest_supported);
+  if (hr == S_FALSE && closest_supported)
   {
-    SendErrorEvent("Failed to get mix format");
+    // Use closest supported format
+    mix_format = closest_supported;
+  }
+  else if (FAILED(hr))
+  {
+    SendErrorEvent("Requested audio format not supported");
     return;
   }
+
+  // hr = audio_client_->GetMixFormat(&mix_format);
+  // if (FAILED(hr) || !mix_format)
+  // {
+  //   SendErrorEvent("Failed to get mix format");
+  //   return;
+  // }
 
   // Create event handle
   HANDLE hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
   if (!hEvent)
   {
-    CoTaskMemFree(mix_format);
+    // CoTaskMemFree(mix_format);
+    if (closest_supported && mix_format == closest_supported)
+      CoTaskMemFree(closest_supported);
     SendErrorEvent("Failed to create event handle");
     return;
   }
@@ -633,15 +661,16 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   hr = audio_client_->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
       streamFlags,
-      2000000, // 1 second buffer
+      10000000, // 1 second buffer
       0,
       mix_format,
       nullptr);
-
   if (FAILED(hr))
   {
     CloseHandle(hEvent);
-    CoTaskMemFree(mix_format);
+    if (closest_supported && mix_format == closest_supported)
+      CoTaskMemFree(closest_supported);
+    // CoTaskMemFree(mix_format);
     SendErrorEvent(loopback
                        ? "Failed to initialize audio client (system loopback)"
                        : "Failed to initialize audio client (microphone)");
@@ -663,7 +692,7 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   if (FAILED(hr))
   {
     CloseHandle(hEvent);
-    CoTaskMemFree(mix_format);
+    // CoTaskMemFree(mix_format);
     SendErrorEvent("Failed to get capture client");
     return;
   }
@@ -709,7 +738,9 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   // Cleanup
   audio_client_->Stop();
   CloseHandle(hEvent);
-  CoTaskMemFree(mix_format);
+  // CoTaskMemFree(mix_format);
+  if (closest_supported && mix_format == closest_supported)
+    CoTaskMemFree(closest_supported);
 }
 
 void FlutterWindow::OnStreamListen(std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events)

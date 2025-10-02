@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:ledfx/audio_bridge.dart';
+import 'package:ledfx/src/platform/audio_bridge.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:ledfx/visualizer/visualizer_painter.dart';
 import 'package:ledfx/visualizer/visualizer_service.dart';
@@ -116,10 +116,10 @@ class _SettingsPageState extends State<SettingsPage> {
             data,
           );
           break;
-        case DevicesInfoEvent(:final outputDevices, :final inputDevices):
+        case DevicesInfoEvent(:final audioDevices):
           setState(() {
             devices ??= [];
-            devices!.addAll([...outputDevices, ...inputDevices]);
+            devices!.addAll(audioDevices);
             devices!.toSet();
           });
           break;
@@ -174,7 +174,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onPressed: () async {
               await AudioBridge.instance.start({
                 "deviceId": devices?.first.id,
-                "captureType": "systemAudio",
+                "captureType": "loopback",
               });
             },
             child: Text("Test"),
