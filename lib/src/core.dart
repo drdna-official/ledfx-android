@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:ledfx/src/devices/device.dart';
 import 'package:ledfx/src/effects/audio.dart';
+import 'package:ledfx/src/effects/effect.dart';
 import 'package:ledfx/src/effects/melbank.dart';
 import 'package:ledfx/src/events.dart';
+import 'package:ledfx/src/virtual.dart';
 import 'package:n_dimensional_array/domain/models/nd_array.dart';
 
 enum Transmission { base64Compressed, uncompressed }
@@ -13,17 +16,28 @@ class LEDFxConfig {
   final int visualizationFPS;
   final int visualisationMaxLen;
   final Transmission transmissionMode;
+  final bool flushOnDeactivate;
+
+  final List<Map<String, dynamic>> devices;
+  final List<Map<String, dynamic>> virtuals;
+
   LEDFxConfig({
     this.visualizationFPS = 24,
     this.visualisationMaxLen = 1,
     this.transmissionMode = Transmission.uncompressed,
+    this.flushOnDeactivate = false,
+    this.devices = const [],
+    this.virtuals = const [],
   });
 }
 
 class LEDFx {
   final LEDFxConfig config;
   AudioAnalysisSource? audio;
-  late final LEDFxEvents events;
+  late LEDFxEvents events;
+  late Devices devices;
+  late Virtuals virtuals;
+  late Effects effects;
 
   late VoidCallback virtualListener;
   late VoidCallback deviceListener;
@@ -106,5 +120,25 @@ class LEDFx {
       visualisationUpdateListener,
       LEDFxEvent.VIRTUAL_UPDATE,
     );
+  }
+
+  Future<void> start([bool pauseAll = false]) async {
+    print("starting LEDFx");
+
+    devices = Devices(ledfx: this);
+    effects = Effects(ledfx: this);
+    virtuals = Virtuals(ledfx: this);
+    virtuals.resetForCore(this);
+    // TODO: create virtuals from config
+
+    await devices.initialiseDevices();
+
+    if (pauseAll) virtuals.pauseAll();
+  }
+
+  Future<void> stop([int exitCode = 0]) async {
+    print("stopping ...");
+    try {} catch (e) {
+    } finally {}
   }
 }

@@ -6,14 +6,17 @@ import 'package:n_dimensional_array/n_dimensional_array.dart';
 
 sealed class LEDFxEvent {
   static const CORE_SHUTDOWN = 'shutdown';
+  static const DEVICE_CREATED = 'device_created';
+  static const DEVICES_UPDATED = 'devices_updated';
   static const DEVICE_UPDATE = 'device_update';
   static const VIRTUAL_UPDATE = 'virtual_update';
+  static const VIRTUAL_PAUSED = 'virtual_paused';
   static const VISUALISATION_UPDATE = "visualisation_update";
 
   final String eventType;
   const LEDFxEvent(this.eventType);
 
-  Map<String, dynamic> ToMap();
+  Map<String, dynamic> toMap();
 }
 
 class LEDFxEventListener {
@@ -22,7 +25,7 @@ class LEDFxEventListener {
   final Map filter;
 
   bool filterEvent(LEDFxEvent event) {
-    final eventPropertyMap = event.ToMap();
+    final eventPropertyMap = event.toMap();
     for (final k in filter.keys) {
       if (eventPropertyMap[k] != filter[k]) {
         return true;
@@ -77,6 +80,35 @@ class LEDFxEvents {
   }
 }
 
+class VirtualPauseEvent extends LEDFxEvent {
+  final String id;
+  const VirtualPauseEvent(this.id) : super(LEDFxEvent.VIRTUAL_PAUSED);
+
+  @override
+  Map<String, dynamic> toMap() {
+    return {"eventType": eventType, "id": id};
+  }
+}
+
+class DeviceCreatedEvent extends LEDFxEvent {
+  final String name;
+  const DeviceCreatedEvent(this.name) : super(LEDFxEvent.DEVICE_CREATED);
+
+  @override
+  Map<String, dynamic> toMap() {
+    return {"eventType": eventType, "name": name};
+  }
+}
+
+class DevicesUpdatedEvent extends LEDFxEvent {
+  final String deviceID;
+  const DevicesUpdatedEvent(this.deviceID) : super(LEDFxEvent.DEVICES_UPDATED);
+  @override
+  Map<String, dynamic> toMap() {
+    return {"eventType": eventType, "deviceID": deviceID};
+  }
+}
+
 class DeviceUpdateEvent extends LEDFxEvent {
   final String deviceID;
   final NdArray pixels;
@@ -84,7 +116,7 @@ class DeviceUpdateEvent extends LEDFxEvent {
     : super(LEDFxEvent.DEVICE_UPDATE);
 
   @override
-  Map<String, dynamic> ToMap() {
+  Map<String, dynamic> toMap() {
     return {"eventType": eventType, "deviceID": deviceID, "pixels": pixels};
   }
 }
@@ -95,7 +127,7 @@ class VirtualUpdateEvent extends LEDFxEvent {
   const VirtualUpdateEvent(this.virtualID, this.pixels)
     : super(LEDFxEvent.VIRTUAL_UPDATE);
   @override
-  Map<String, dynamic> ToMap() {
+  Map<String, dynamic> toMap() {
     return {"eventType": eventType, "virtualID": virtualID, "pixels": pixels};
   }
 }
@@ -110,7 +142,7 @@ class VisualisationUpdateEvent extends LEDFxEvent {
     : super(LEDFxEvent.VISUALISATION_UPDATE);
 
   @override
-  Map<String, dynamic> ToMap() {
+  Map<String, dynamic> toMap() {
     return {
       "eventType": eventType,
       "visID": visID,

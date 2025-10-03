@@ -154,21 +154,51 @@ class WLED {
     // Set and parse SyncSetting from json response
   }
 
-  Future<void> getConfig() async {
-    final configResp = await _requestGET("json/info");
-    // Set and parse Config from json response
+  Future<WLEDConfig?> getConfig() async {
+    try {
+      final Map<String, dynamic>? configResp = await _requestGET("json/info");
+      return WLEDConfig(
+        ledCount: configResp!["leds"]["count"],
+        mode: configResp["leds"]["rgbw"],
+        build: configResp["vid"],
+        name: configResp["name"],
+        mac: configResp["mac"],
+        rows: configResp["matrix"]["h"],
+      );
+      // Set and parse Config from json response
 
-    //     wled_config = response.json()
+      //     wled_config = response.json()
 
-    // if "brand" not in wled_config:
-    //     raise ValueError(
-    //         f"WLED {self.ip_address}: Device is not WLED compatible"
-    //     )
+      // if "brand" not in wled_config:
+      //     raise ValueError(
+      //         f"WLED {self.ip_address}: Device is not WLED compatible"
+      //     )
 
-    // _LOGGER.info(
-    //     f"WLED compatible device brand:{wled_config['brand']} at {self.ip_address} configuration received"
-    // )
+      // _LOGGER.info(
+      //     f"WLED compatible device brand:{wled_config['brand']} at {self.ip_address} configuration received"
+      // )
 
-    // return wled_config
+      // return wled_config
+    } catch (e) {
+      print(e.toString());
+    }
   }
+}
+
+class WLEDConfig {
+  final int ledCount;
+  final String mode;
+  final String build;
+  final String name;
+  final String mac;
+  final String? rows;
+
+  const WLEDConfig({
+    required this.ledCount,
+    required this.mode,
+    required this.build,
+    required this.name,
+    required this.mac,
+    required this.rows,
+  });
 }
