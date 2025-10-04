@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:ledfx/src/devices/device.dart';
+import 'package:ledfx/src/devices/wled.dart';
 import 'package:ledfx/src/effects/audio.dart';
 import 'package:ledfx/src/effects/effect.dart';
 import 'package:ledfx/src/effects/melbank.dart';
+import 'package:ledfx/src/effects/temporal.dart';
 import 'package:ledfx/src/events.dart';
 import 'package:ledfx/src/virtual.dart';
 import 'package:n_dimensional_array/domain/models/nd_array.dart';
@@ -18,16 +20,14 @@ class LEDFxConfig {
   final Transmission transmissionMode;
   final bool flushOnDeactivate;
 
-  final List<Map<String, dynamic>> devices;
-  final List<Map<String, dynamic>> virtuals;
+  List<Map<String, dynamic>> devices = [];
+  List<Map<String, dynamic>> virtuals = [];
 
   LEDFxConfig({
     this.visualizationFPS = 24,
     this.visualisationMaxLen = 1,
     this.transmissionMode = Transmission.uncompressed,
     this.flushOnDeactivate = false,
-    this.devices = const [],
-    this.virtuals = const [],
   });
 }
 
@@ -70,7 +70,7 @@ class LEDFx {
       //TODO: implement virtuals
       final rows = 1;
 
-      NdArray pixels = isDevice
+      List<Float32List> pixels = isDevice
           ? (event as DeviceUpdateEvent).pixels
           : (event as VirtualUpdateEvent).pixels;
       final pixelsLen = pixels.length;
@@ -84,11 +84,11 @@ class LEDFx {
           return;
         }
 
-        final List<int> pixelsShape = pixels.shape;
+        final List<int> pixelsShape = NdArray.fromList(pixels).shape;
 
-        List<List<int>> transposedAndCasted = List.generate(
+        List<List<double>> transposedAndCasted = List.generate(
           pixelsShape[1],
-          (j) => List<int>.filled(pixelsShape[0], 0),
+          (j) => List<double>.filled(pixelsShape[0], 0),
         );
 
         for (int i = 0; i < pixelsShape[0]; i++) {
@@ -97,13 +97,17 @@ class LEDFx {
             double val = pixels[i][j];
 
             // Clamp values between 0 and 255 and cast to int
-            int uint8Value = val.clamp(0.0, 255.0).round().toInt();
+            // int uint8Value = val.clamp(0.0, 255.0).round().toInt();
+            double uint8Value = val.clamp(0.0, 255.0);
 
             // Place into the transposed position
             transposedAndCasted[j][i] = uint8Value;
           }
         }
-        pixels = NdArray.fromList(transposedAndCasted);
+        pixels = List.generate(
+          transposedAndCasted.length,
+          (i) => Float32List.fromList(transposedAndCasted[i]),
+        );
       }
 
       events.fireEvent(
@@ -128,11 +132,36 @@ class LEDFx {
     devices = Devices(ledfx: this);
     effects = Effects(ledfx: this);
     virtuals = Virtuals(ledfx: this);
+
     virtuals.resetForCore(this);
     // TODO: create virtuals from config
+    final device = await devices.addNewDevice(
+      DeviceConfig(
+        pixelCount: 200,
+        rgbwLED: "DNRGB",
+        name: "WLED Test",
+        type: "wled",
+        address: "192.168.0.12",
+        rows: 1,
+        syncMode: WLEDSyncMode.udp,
+      ),
+    );
+    if (device != null) {
+      await devices.initialiseDevices();
 
-    await devices.initialiseDevices();
-
+      final v =
+          virtuals.virtuals[config.virtuals.firstWhere(
+            (m) => m["deviceID"] == device.id,
+          )["id"]];
+      if (v != null) {
+        v.setEffect(
+          RainbowEffect(
+            ledfx: this,
+            config: EffectConfig(name: "Rainbow Effect"),
+          ),
+        );
+      }
+    }
     if (pauseAll) virtuals.pauseAll();
   }
 

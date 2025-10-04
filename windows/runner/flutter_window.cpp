@@ -607,10 +607,10 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   }
 
   WAVEFORMATEX custom_format = {};
-  custom_format.wFormatTag = WAVE_FORMAT_PCM;      // PCM
-  custom_format.nChannels = channels_;             // 1=Mono, 2=Stereo
-  custom_format.nSamplesPerSec = sample_rate_;     // Sample rate, e.g. 44100
-  custom_format.wBitsPerSample = bits_per_sample_; // Bit depth
+  custom_format.wFormatTag = WAVE_FORMAT_PCM;                         // PCM
+  custom_format.nChannels = static_cast<WORD>(channels_);             // 1=Mono, 2=Stereo
+  custom_format.nSamplesPerSec = static_cast<WORD>(sample_rate_);     // Sample rate, e.g. 44100
+  custom_format.wBitsPerSample = static_cast<WORD>(bits_per_sample_); // Bit depth
   custom_format.nBlockAlign = custom_format.nChannels * custom_format.wBitsPerSample / 8;
   custom_format.nAvgBytesPerSec = custom_format.nSamplesPerSec * custom_format.nBlockAlign;
   custom_format.cbSize = 0;
@@ -619,7 +619,7 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   WAVEFORMATEX *mix_format = &custom_format;
   // Check if supported
   WAVEFORMATEX *closest_supported = nullptr;
-  HRESULT hr = audio_client_->IsFormatSupported(
+  hr = audio_client_->IsFormatSupported(
       AUDCLNT_SHAREMODE_SHARED,
       mix_format,
       (WAVEFORMATEX **)&closest_supported);

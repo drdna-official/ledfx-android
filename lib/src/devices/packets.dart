@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:matrix2d/matrix2d.dart';
-import 'package:n_dimensional_array/n_dimensional_array.dart';
 
 class Packets {
-  static List<int> buidDRGBpacket(NdArray data, [int? timeout]) {
+  static List<int> buidDRGBpacket(List<Float32List> data, [int? timeout]) {
     // Generic DRGB packet encoding
     // Max LEDs: 490
 
@@ -15,11 +14,11 @@ class Packets {
     // 4 + n*3 	Blue Value
 
     List<int> header = [2, timeout ?? 1];
-    return [...header, ...data.data.flatten];
+    return [...header, ...data.flatten];
   }
 
   static List<int> buidDNRGBpacket(
-    NdArray data,
+    List<Float32List> data,
     int ledStartIndex, [
     int? timeout,
   ]) {
@@ -40,7 +39,7 @@ class Packets {
     headerBuffer.setUint8(2, (ledStartIndex >> 8) & 0xFF);
     headerBuffer.setUint8(3, ledStartIndex & 0xFF);
 
-    final List<int> flattened = data.data.flatten.cast();
+    final List<int> flattened = data.flatten.cast();
 
     // Calculate the total packet size: 4 bytes for the header + 3 bytes per LED.
     final totalSize = 4 + (flattened.length * 3);
@@ -56,7 +55,7 @@ class Packets {
   }
 
   // TODO: Implement
-  static List<int> buildWARLSpacket(NdArray data, [int? timeout]) {
+  static List<int> buildWARLSpacket(List<Float32List> data, [int? timeout]) {
     //     Generic WARLS packet encoding
     // Max LEDs: 255
 

@@ -5,8 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/devices/device.dart' show Device;
 import 'package:ledfx/src/effects/const.dart';
+import 'package:ledfx/src/effects/effect.dart';
+import 'package:ledfx/src/effects/utils.dart';
 import 'package:ledfx/src/events.dart';
-import 'package:n_dimensional_array/domain/models/nd_array.dart';
 import 'package:nanoid/nanoid.dart';
 
 enum TransitionMode { add }
@@ -85,7 +86,10 @@ class Virtual {
   bool _streaming = false;
   bool get streaming => _streaming;
 
-  // _activeEffect _outputThread
+  Effect? _activeEffect;
+  Effect? get activeEffect => _activeEffect;
+  //
+  // _outputThread
   // _transitionEffect
 
   // _minTime
@@ -114,7 +118,6 @@ class Virtual {
   List<Device>? _cachedDevices;
   List<Device> get devices => () {
     if (_cachedDevices != null) return _cachedDevices!;
-    // return segments.map((seg)=> ledfx.devices.devices[seg.deviceID]).toList();
     final devs = <Device>[];
     for (var s in segments) {
       if (ledfx.devices.devices[s.deviceID] != null) {
@@ -158,7 +161,8 @@ class Virtual {
     return _cachedRefreshRate!;
   }();
 
-  final List<SegmentConfig> segments = [];
+  List<SegmentConfig> segments = [];
+  //start, stop, step, segment_start, segment_end
   Map<String, List<(int, int, int, int, int)>>? _cachedSegmentByDevice;
   Map<String, List<(int, int, int, int, int)>> get segmentsByDevice => () {
     if (_cachedSegmentByDevice != null) return _cachedSegmentByDevice!;
@@ -217,13 +221,91 @@ class Virtual {
     _active = false;
   }
 
-  void activate() {}
+  Timer? _frameTimer;
+  double _frameInterval = 0.001; // Calculated sleep time
+  double fpsToSleepInterval(int fps) => max(0.001, 1 / fps);
+  void activate() {
+    if (devices.isEmpty) {
+      print("no devices setup");
+      return;
+    }
+    if (activeEffect == null) {
+      print("no effect configured");
+      return;
+    }
+
+    print("Virtual $id: Activating with segments $segments");
+
+    if (!_active) {
+      _active = true;
+      try {
+        activateSegments(segments);
+      } on ArgumentError catch (e) {
+        print(e.toString());
+      }
+      _osActive = false; // Reset OS active flag
+    }
+    // Calculate the base interval needed for the desired FPS
+    _frameInterval = fpsToSleepInterval(refreshRate);
+    _frameTimer = Timer.periodic(
+      Duration(milliseconds: (_frameInterval * 1000).round()),
+      _virtualLoop,
+    );
+  }
+
   void deactivate() {
     _active = false;
+    _frameTimer?.cancel();
+    _frameTimer = null;
     _osActive = false;
+
     deactivateSegments();
     ledfx.events.fireEvent(VirtualPauseEvent(id));
     ledfx.virtuals.checkAndDeactivateDevices();
+  }
+
+  void _virtualLoop(Timer timer) {
+    if (!_active) {
+      timer.cancel();
+      return;
+    }
+
+    // final startTime = DateTime.now().microsecondsSinceEpoch;
+
+    if (fallbackFire) {
+      setFallback();
+      fallbackFire = false;
+    }
+
+    if (activeEffect != null &&
+        activeEffect!.isActive &&
+        activeEffect!.pixels != null) {
+      _assembledFrame = assembleFrame();
+      if (_assembledFrame != null && !paused) {
+        if (!config.previewOnly) {
+          flush();
+        }
+        fireUpdateEvent();
+      }
+    }
+
+    // --- Frame Rate Adjustment (Replacing time.sleep) ---
+
+    // 4. Calculate actual runtime and adjust for the next frame.
+    // final double runTimeSeconds =
+    //     (DateTime.now().microsecondsSinceEpoch - startTime) / 1000000.0;
+
+    // // Calculate required sleep time
+    // double sleepTimeSeconds = max(0.001, _frameInterval - runTimeSeconds);
+
+    // If timing must be precise, cancel and reschedule the timer.
+    /*
+    timer.cancel();
+    _frameTimer = Timer(Duration(milliseconds: (sleepTimeSeconds * 1000).round()), () {
+        // Run the logic again
+        _threadFunction(timer); 
+    });
+    */
   }
 
   void invalidateCache() {
@@ -231,8 +313,8 @@ class Virtual {
     _cachedRefreshRate = null;
     _cachedDevices = null;
     _cachedSegmentByDevice = null;
-    _cachedGroupSize = null;
     _cachedEffectivePixelCount = null;
+    _cachedGroupSize = null;
   }
 
   void activateSegments(List<SegmentConfig> segments) {
@@ -250,16 +332,115 @@ class Virtual {
     }
   }
 
-  void updateSegments(List<SegmentConfig> segments) {}
+  void updateSegments(List<SegmentConfig> segments) {
+    List<SegmentConfig> validatedSegments = [];
+    for (var s in segments) {
+      validatedSegments.add(validateSegment(s));
+    }
+    final _pixelCount = pixelCount;
+    if (active) {
+      deactivateSegments();
+      try {
+        activateSegments(validatedSegments);
+      } catch (e) {
+        deactivateSegments();
+        activateSegments(this.segments);
+        rethrow;
+      }
+    }
+
+    this.segments = validatedSegments;
+    invalidateCache();
+
+    if (pixelCount != _pixelCount) {
+      reactivateEffect();
+    }
+
+    virtualConfig["segments"] = segments;
+    ledfx.virtuals.checkAndDeactivateDevices();
+  }
 
   setFallback() {}
   clearFrame() {}
+  void reactivateEffect() {}
 
-  void flush(NdArray? pixels) {
-    pixels = pixels ?? assembledFrame();
+  void flush([List<Float32List>? pixels]) {
+    pixels = pixels ?? _assembledFrame;
+    if (pixels == null) return;
+
+    segmentsByDevice.forEach((deviceID, segments) {
+      var data = <(List<Float32List>, int, int)>[];
+      final device = ledfx.devices.devices[deviceID];
+      if (device != null && device.isActive) {
+        if (_calibration) {
+          // renderCalibration(data, device, segments, deviceID);
+        } else if (config.mapping == "span") {
+          for (final (start, stop, step, devStart, devEnd) in segments) {
+            final seg = getSlice(pixels!, start, stop, step);
+
+            data.add((seg, devStart, devEnd));
+          }
+        } else if (config.mapping == "copy") {
+          for (final (start, stop, step, devStart, devEnd) in segments) {
+            final targetPhysicalLen = devEnd - devStart + 1;
+            final targetEffectLen = _getEffectivePixelCount(targetPhysicalLen);
+            var seg = getSlice(pixels!, start, stop, step);
+
+            seg = effectiveToPhysicalPixels(seg, targetPhysicalLen);
+            data.add((seg, devStart, devEnd));
+          }
+        }
+
+        device.updatePixels(id, data);
+      }
+    });
   }
 
-  NdArray assembledFrame() {}
+  void renderCalibration() {}
+
+  List<Float32List>? _assembledFrame;
+  List<Float32List>? assembleFrame() {
+    activeEffect?.render();
+    final frame = activeEffect?.getPixels();
+
+    if (frame != null) {
+      // clamp value
+      for (final row in frame) {
+        for (int j = 0; j < row.length; j++) {
+          double value = row[j];
+          row[j] = value.clamp(0.0, 255.0);
+        }
+      }
+
+      return frame;
+    }
+    return null;
+  }
+
+  void fireUpdateEvent([List<Float32List>? frame]) {
+    frame = frame ?? _assembledFrame;
+    if (frame == null) return;
+
+    ledfx.events.fireEvent(
+      VirtualUpdateEvent(id, effectiveToPhysicalPixels(frame)),
+    );
+  }
+
+  List<Float32List> effectiveToPhysicalPixels(
+    List<Float32List> effectivePixels, [
+    int? pixelCount,
+  ]) {
+    if (groupSize <= 1) return effectivePixels;
+    pixelCount = pixelCount ?? this.pixelCount;
+
+    effectivePixels = repeatAndTruncatePixels(
+      effectivePixels,
+      groupSize,
+      pixelCount,
+    );
+
+    return effectivePixels;
+  }
 
   SegmentConfig validateSegment(SegmentConfig segment) {
     final device = ledfx.devices.devices[segment.deviceID];
@@ -285,6 +466,25 @@ class Virtual {
       return SegmentConfig(segment.deviceID, start, end, segment.inverted);
     }
     return segment;
+  }
+
+  void setEffect(Effect effect, [double? fallback]) {
+    if (devices.isEmpty) {
+      print("can not set effect, no active device");
+    }
+
+    if (fallback != null) {}
+
+    _activeEffect = effect;
+    _activeEffect!.activate(this);
+    // TODO:
+    // ledfx.events.fireEvent(EffectSetEvent);
+    try {
+      active = true;
+    } catch (e) {
+      active = false;
+      print(e.toString());
+    }
   }
 }
 
@@ -326,9 +526,11 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
     });
   }
 
-  createVirtual({String? id, required VirtualConfig config}) {
+  Virtual createVirtual({String? id, required VirtualConfig config}) {
     id = id ?? nanoid(10);
-    virtuals[id] = Virtual(id: id, config: config, ledfx: ledfx);
+    final v = Virtual(id: id, config: config, ledfx: ledfx);
+    _virtuals[id] = v;
+    return v;
   }
 
   destroyVirtual(String id) {
@@ -337,7 +539,11 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
     virtuals.removeWhere((k, _) => k == id);
   }
 
-  Virtual create(String id, VirtualConfig config) {}
+  Virtual create(String id, VirtualConfig config) {
+    final v = Virtual(id: id, config: config, ledfx: ledfx);
+    _virtuals[id] = v;
+    return v;
+  }
 
   void pauseAll() {}
 

@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 List<double> equallySpacedDoublesList(double start, double end, int count) {
   if (count <= 0) return <double>[];
@@ -63,6 +64,96 @@ List<T> rollList<T>(List<T> list, int offset) {
   }
 
   return rolled;
+}
+
+// T is used to represent the inner type (Float32List or List<double>)
+List<T> getSlice<T>(List<T> data, int start, int stop, int step) {
+  if (step == 0) {
+    throw ArgumentError('Step cannot be zero.');
+  }
+
+  // Normalize the indices to handle negative values and bounds,
+  // similar to how Python handles slicing.
+  int N = data.length;
+
+  // Default Python start/stop behavior
+  if (start < 0) start += N;
+  if (stop < 0) stop += N;
+
+  // Python slicing allows stop indices past the end of the list.
+  if (stop > N) stop = N;
+  if (start > N) start = N;
+
+  // Ensure start/stop are not negative after normalization
+  if (start < 0) start = 0;
+  if (stop < 0) stop = 0;
+
+  // Determine the direction of the loop
+  if (step > 0) {
+    // Standard forward slice (e.g., [1:10:2])
+    // Ensure start is less than stop
+    if (start >= stop) return [];
+
+    return List<T>.generate(
+      ((stop - start - 1) ~/ step) + 1, // Calculate the number of elements
+      (i) => data[start + i * step],
+    );
+  } else {
+    // Reverse slice (e.g., [10:1:-1])
+    // Ensure start is greater than stop
+    if (start <= stop) return [];
+
+    // The logic is slightly complex for negative step; a simpler while loop is clearer.
+    List<T> result = [];
+    int i = start;
+
+    while (i > stop) {
+      if (i >= 0 && i < N) {
+        result.add(data[i]);
+      }
+      i += step;
+    }
+    return result;
+  }
+}
+
+List<Float32List> repeatAndTruncatePixels(
+  List<Float32List> effectivePixels,
+  int groupSize,
+  int pixelCount,
+) {
+  if (effectivePixels.isEmpty || groupSize <= 0) {
+    return [];
+  }
+
+  // 1. Repetition (Equivalent to np.repeat(..., axis=0))
+  List<Float32List> repeatedPixels = [];
+
+  // Iterate through each row in the original array
+  for (final Float32List row in effectivePixels) {
+    // Repeat the current row 'groupSize' times
+    for (int i = 0; i < groupSize; i++) {
+      // Add a reference to the row.
+      // NOTE: This creates a shallow copy (a new list of references
+      // to the same Float32List objects), which matches NumPy's behavior
+      // after a repeat operation if the result isn't explicitly copied/modified.
+      repeatedPixels.add(row);
+    }
+  }
+
+  // 2. Truncation (Equivalent to [:pixel_count, :])
+  // Slice the resulting array to only keep the first 'pixel_count' rows.
+  // The Dart List.sublist method handles this perfectly.
+
+  int actualLength = repeatedPixels.length;
+
+  if (pixelCount >= actualLength) {
+    // If pixel_count is larger than the repeated array size, return the full repeated array.
+    return repeatedPixels;
+  } else {
+    // Return only the first 'pixel_count' rows.
+    return repeatedPixels.sublist(0, pixelCount);
+  }
 }
 
 /// A fixed-size, auto-dropping circular buffer (like Python's collections.deque(maxlen=...)).
@@ -194,4 +285,147 @@ class FixedSizeQueue<T> {
   int get length => _currentSize;
   bool get isFull => _currentSize == maxSize;
   bool get isEmpty => _currentSize == 0;
+}
+
+/// Converts an array of Hues using provided saturation and value properties to an RGB array.
+///
+/// Args:
+///   hues (List<double>): Array of hue values (0 to 1).
+///   saturation (double between 0 and 1): The saturation.
+///   value (double between 0 and 1): The value.
+///
+/// Returns:
+///   List<Float32List>: An array of RGB values where each RGB value is in the range 0 to 255.
+List<Float32List> hsvToRgb(List<double> hues, double saturation, double value) {
+  if (hues.isEmpty) {
+    return [];
+  }
+
+  int pixelCount = hues.length;
+  List<Float32List> rgbArray = List.generate(pixelCount, (_) => Float32List(3));
+
+  // The six possible values for R, G, B channels based on intermediate calculation
+  final double p = value * (1.0 - saturation);
+  final double q =
+      value * (1.0 - saturation * 0.0); // f is 0 for i=0, q=v*(1-s*0)=v*(1-s)
+  final double t =
+      value *
+      (1.0 - saturation * 1.0); // 1-f is 0 for i=0, t=v*(1-s*1)=v*(1-s*f)
+
+  // Pre-calculate the six intermediate values, which are constant for a given S and V
+  // The six possibilities for each channel (value, q, p, p, t, value)
+  // We use this structure to simulate np.choose.
+  const int HUE_SECTIONS = 6;
+  final List<double> sectionValues = [
+    value,
+    value * (1.0 - saturation * 0.0), // Placeholder for q or t logic
+    p,
+    p,
+    value * (1.0 - saturation * 0.0), // Placeholder for q or t logic
+    value,
+  ];
+
+  for (int idx = 0; idx < pixelCount; idx++) {
+    double hue = hues[idx];
+
+    // --- Intermediate Calculations (Vectorized in Python) ---
+
+    // 1. hue_i = hue * 6
+    double hue_i = hue * 6.0;
+
+    // 2. i = np.floor(hue_i).astype(int)
+    int i = hue_i.floor().toInt();
+
+    // 3. f = hue_i - i
+    double f = hue_i - i;
+
+    // Intermediate values for RGB conversion based on the fractional part 'f'.
+    // NOTE: These must be calculated per pixel because they depend on 'f'.
+    final double p_pixel = value * (1.0 - saturation);
+    final double q_pixel = value * (1.0 - saturation * f);
+    final double t_pixel = value * (1.0 - saturation * (1.0 - f));
+
+    // 4. i = i % 6 (Ensure that i values are within the range [0, 5])
+    int section = i % HUE_SECTIONS;
+
+    // --- Assigning RGB components (Equivalent to np.choose) ---
+
+    // Define the color component sequences for the current pixel's section.
+    // This replaces the complex np.choose logic.
+    late double R, G, B;
+
+    switch (section) {
+      case 0: // R = V, G = T, B = P
+        R = value;
+        G = t_pixel;
+        B = p_pixel;
+        break;
+      case 1: // R = Q, G = V, B = P
+        R = q_pixel;
+        G = value;
+        B = p_pixel;
+        break;
+      case 2: // R = P, G = V, B = T
+        R = p_pixel;
+        G = value;
+        B = t_pixel;
+        break;
+      case 3: // R = P, G = Q, B = V
+        R = p_pixel;
+        G = q_pixel;
+        B = value;
+        break;
+      case 4: // R = T, G = P, B = V
+        R = t_pixel;
+        G = p_pixel;
+        B = value;
+        break;
+      case 5: // R = V, G = P, B = Q
+        R = value;
+        G = p_pixel;
+        B = q_pixel;
+        break;
+      default:
+        // This case should be covered by i % 6, but included for robustness.
+        R = 0.0;
+        G = 0.0;
+        B = 0.0;
+    }
+
+    // 5. Scale to 0-255 range and store (Equivalent to return rgb * 255)
+    rgbArray[idx][0] = R * 255.0;
+    rgbArray[idx][1] = G * 255.0;
+    rgbArray[idx][2] = B * 255.0;
+  }
+
+  return rgbArray;
+}
+
+List<Float32List> fillRainbow(
+  List<Float32List> pixels,
+  double initialHue,
+  double deltaHue,
+) {
+  // The input 'pixels' array is used only to determine the final size (pixelCount).
+  final int pixelCount = pixels.length;
+
+  const double sat = 0.95;
+  const double val = 1.0;
+
+  // --- Create Hue Values (Equivalent to np.arange(...) ) ---
+
+  List<double> hues = [];
+  double currentHue = initialHue;
+
+  // The loop runs exactly 'pixelCount' times, generating the precise number of hues needed.
+  // This replaces np.arange(...) and the subsequent array slicing.
+  for (int i = 0; i < pixelCount; i++) {
+    hues.add(currentHue);
+    currentHue += deltaHue;
+  }
+
+  // --- Convert to RGB ---
+  // The hsvToRgb function is expected to return the final List<Float32List>
+  // with dimensions [pixelCount, 3].
+  return hsvToRgb(hues, sat, val);
 }

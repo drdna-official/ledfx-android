@@ -16,7 +16,7 @@ import 'package:nanoid/nanoid.dart';
 
 class DeviceConfig {
   String? address;
-  String? name;
+  String name;
   String type;
   int pixelCount;
   String rgbwLED;
@@ -26,7 +26,7 @@ class DeviceConfig {
   DeviceConfig({
     required this.pixelCount,
     required this.rgbwLED,
-    this.name,
+    required this.name,
     required this.type,
     this.syncMode,
     this.address,
@@ -76,26 +76,28 @@ class Devices extends Iterable<MapEntry<String, Device>> {
     DeviceConfig config,
     LEDFx ledfx,
   ) {
+    Device d;
     switch (deviceType) {
       case "wled":
-        return WLEDDevice(
-          name: config.name,
-          pixelCount: config.pixelCount,
+        d = WLEDDevice(
           ipAddr: config.address!,
           syncMode: config.syncMode!,
           id: id,
           ledfx: ledfx,
+          config: config,
         );
       default:
-        return WLEDDevice(
-          name: config.name,
-          pixelCount: config.pixelCount,
+        d = WLEDDevice(
           ipAddr: config.address!,
           syncMode: config.syncMode!,
           id: id,
           ledfx: ledfx,
+          config: config,
         );
     }
+
+    devices[id] = d;
+    return d;
   }
 
   //Creates New Device
@@ -106,9 +108,10 @@ class Devices extends Iterable<MapEntry<String, Device>> {
       final ipAddr = cleanIPaddress(config.address!);
       try {
         resolvedDestination = await resolveDestination(ipAddr);
-        return null;
+        if (resolvedDestination == "") throw Exception("could not be resolved");
       } catch (e) {
-        print("device could not be resolved -- $ipAddr");
+        print("device could not be resolved -- $ipAddr, skipping device");
+        return null;
       }
 
       if (resolvedDestination.isNotEmpty) {
@@ -127,8 +130,8 @@ class Devices extends Iterable<MapEntry<String, Device>> {
       final wled = WLED(ipAddr: resolvedDestination);
       wledConfig = await wled.getConfig();
       if (wledConfig == null) return null;
-      if (config.name != null || config.name!.isNotEmpty) {
-        WLEDname = config.name!;
+      if (config.name.isNotEmpty) {
+        WLEDname = config.name;
       } else if (wledConfig.name == "WLED") {
         WLEDname = "${wledConfig.name} - ${wledConfig.mac}".toUpperCase();
       } else {
@@ -204,7 +207,7 @@ abstract class Device {
   final String id;
   final LEDFx ledfx;
   final DeviceConfig config;
-  String get name => config.name ?? "";
+  String get name => config.name;
   int get pixelCount => config.pixelCount;
   String get type => config.type;
 
@@ -234,7 +237,7 @@ abstract class Device {
   bool _online = true;
   bool get isOnline => _online;
 
-  NdArray? _pixels;
+  List<Float32List>? _pixels;
 
   List<Virtual>? _cachedVirtualsObjs;
   List<Virtual> get _virtualObjs => () {
@@ -260,7 +263,7 @@ abstract class Device {
   List<SegmentConfig> _segments = [];
 
   void activate() {
-    _pixels = NdArray.fromList(List.filled(pixelCount, Float32List(3)));
+    _pixels = List.filled(pixelCount, Float32List(3));
     _active = true;
   }
 
@@ -287,7 +290,7 @@ abstract class Device {
 
   ///Flushes the provided data to the device. This abstract method must be
   ///overwritten by the device implementation.
-  void flush(NdArray data) {
+  void flush(List<Float32List> data) {
     return;
   }
 
@@ -337,15 +340,21 @@ abstract class Device {
     return;
   }
 
-  void updatePixels(String virtualID, List<(NdArray, int, int)> data) {
+  void updatePixels(
+    String virtualID,
+    List<(List<Float32List>, int, int)> data,
+  ) {
     if (_active == false) {
       debugPrint("Can't update inactive device: $name");
       return;
     }
 
     for (final (pixels, _, _) in data) {
-      if (pixels.shape.isNotEmpty && pixels.shape[0] != 0) {
-        if (pixels.shape.first == 3 || _pixels?.shape == pixels.shape) {
+      final ndArr = NdArray.fromList(pixels);
+      if (ndArr.shape.isNotEmpty && ndArr.shape[0] != 0) {
+        if (ndArr.shape.first == 3 ||
+            (_pixels != null &&
+                NdArray.fromList(_pixels!).shape == ndArr.shape)) {
           _pixels = pixels;
         }
       }
@@ -361,11 +370,11 @@ abstract class Device {
     }
   }
 
-  NdArray? assembleFrame() {
+  List<Float32List>? assembleFrame() {
     if (_pixels == null) return null;
-    List<Float32List> frame = _pixels!.data as List<Float32List>;
+    List<Float32List> frame = _pixels!;
     if (centerOffset > 0) frame = rollList(frame, centerOffset);
-    return NdArray.fromList(frame);
+    return frame;
   }
 
   // Returns the first virtual that has the highest refresh rate of all virtuals
@@ -449,15 +458,16 @@ abstract class Device {
 
 abstract class NetworkedDevice extends Device implements AsyncInitDevice {
   NetworkedDevice({
-    required super.name,
-    required super.pixelCount,
     super.refreshRate,
-    required this.ipAddr,
+    required String ipAddr,
     required super.id,
     required super.ledfx,
-  });
+    required super.config,
+  }) {
+    config.address = ipAddr;
+  }
 
-  String ipAddr;
+  String get ipAddr => config.address!;
 
   String? _destination;
   String? get destination => () {
@@ -503,13 +513,12 @@ abstract class NetworkedDevice extends Device implements AsyncInitDevice {
 
 abstract class UDPDevice extends NetworkedDevice {
   UDPDevice({
-    required super.name,
-    required super.pixelCount,
     required super.ipAddr,
     super.refreshRate,
     required this.port,
     required super.id,
     required super.ledfx,
+    required super.config,
   });
 
   int port;
@@ -532,8 +541,6 @@ abstract class UDPDevice extends NetworkedDevice {
 
 class RealtimeUDPDevice extends UDPDevice {
   RealtimeUDPDevice({
-    required super.name,
-    required super.pixelCount,
     required super.ipAddr,
     required super.port,
     super.refreshRate,
@@ -542,8 +549,10 @@ class RealtimeUDPDevice extends UDPDevice {
     this.minimizeTraffic = true,
     required super.id,
     required super.ledfx,
-  }) : lastFrame = NdArray.fromList(
-         List.filled(pixelCount, List.filled(3, -1)),
+    required super.config,
+  }) : lastFrame = List.filled(
+         config.pixelCount,
+         Float32List.fromList(List.filled(3, -1)),
        ),
        lastFrameSendTime = DateTime.now().millisecondsSinceEpoch,
        deviceType = "UDP Device";
@@ -553,11 +562,11 @@ class RealtimeUDPDevice extends UDPDevice {
   int timeout;
   bool minimizeTraffic;
 
-  late NdArray lastFrame;
+  late List<Float32List> lastFrame;
   late int lastFrameSendTime;
 
   @override
-  void flush(NdArray data) {
+  void flush(List<Float32List> data) {
     try {
       chooseAndSend(data);
       lastFrame = data;
@@ -567,7 +576,7 @@ class RealtimeUDPDevice extends UDPDevice {
     }
   }
 
-  void chooseAndSend(NdArray data) {
+  void chooseAndSend(List<Float32List> data) {
     final int frameSize = data.length;
     final bool frameIsSame = minimizeTraffic && data == lastFrame;
     log("Frame Size/Pixel Count = $frameSize");
@@ -587,7 +596,7 @@ class RealtimeUDPDevice extends UDPDevice {
           int start = i * 489;
           int end = start + 489;
           final udpData = Packets.buidDNRGBpacket(
-            NdArray.fromList(data.data.getRange(start, end).toList()),
+            data.getRange(start, end).toList(),
             start,
             timeout,
           );
@@ -611,7 +620,7 @@ class RealtimeUDPDevice extends UDPDevice {
             int start = i * 489;
             int end = start + 489;
             final udpData = Packets.buidDNRGBpacket(
-              NdArray.fromList(data.data.getRange(start, end).toList()),
+              data.getRange(start, end).toList(),
               start,
               timeout,
             );

@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:developer';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:ledfx/src/devices/device.dart';
-import 'package:n_dimensional_array/domain/models/nd_array.dart';
 import 'package:http/http.dart' as http;
 import 'package:nanoid/nanoid.dart';
 
@@ -11,14 +11,13 @@ enum WLEDSyncMode { udp, ddp, e131 }
 
 class WLEDDevice extends NetworkedDevice {
   WLEDDevice({
-    required super.name,
-    required super.pixelCount,
     required super.ipAddr,
     super.refreshRate,
     required this.syncMode,
     this.timeout = 1,
     required super.id,
     required super.ledfx,
+    required super.config,
 
     // required int port,
     // required String udpPacketType,
@@ -31,7 +30,7 @@ class WLEDDevice extends NetworkedDevice {
   WLED? wled;
 
   @override
-  void flush(NdArray data) {
+  void flush(List<Float32List> data) {
     subdevice?.flush(data);
   }
 
@@ -54,34 +53,31 @@ class WLEDDevice extends NetworkedDevice {
     subdevice = switch (syncMode) {
       WLEDSyncMode.udp => RealtimeUDPDevice(
         id: nanoid(10),
-        name: name,
-        pixelCount: pixelCount,
         ipAddr: ipAddr,
         port: 21324,
         timeout: timeout,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
         ledfx: ledfx,
+        config: config,
       ),
       WLEDSyncMode.ddp => RealtimeUDPDevice(
         id: nanoid(10),
-        name: name,
-        pixelCount: pixelCount,
         ipAddr: ipAddr,
         port: 21324,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
         ledfx: ledfx,
+        config: config,
       ),
       WLEDSyncMode.e131 => RealtimeUDPDevice(
         id: nanoid(10),
-        name: name,
-        pixelCount: pixelCount,
         ipAddr: ipAddr,
         port: 21324,
         udpPacketType: "DNRGB",
         minimizeTraffic: true,
         ledfx: ledfx,
+        config: config,
       ),
     };
     subdevice!.destination = destination;
@@ -97,8 +93,13 @@ class WLEDDevice extends NetworkedDevice {
   Future<void> initialize() async {
     await super.initialize();
     wled = WLED(ipAddr: destination!);
-    final config = wled!.getConfig();
+    final wledConfig = await wled!.getConfig();
+    if (wledConfig == null) return;
     // Update Config
+    config
+      ..name = wledConfig.name
+      ..pixelCount = wledConfig.ledCount
+      ..rgbwLED = wledConfig.mode;
 
     setupSubdevice();
   }
@@ -181,6 +182,7 @@ class WLED {
       // return wled_config
     } catch (e) {
       print(e.toString());
+      return null;
     }
   }
 }

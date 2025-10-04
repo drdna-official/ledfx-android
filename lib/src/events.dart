@@ -1,8 +1,9 @@
 // ignore_for_file: constant_identifier_names
 
+import 'dart:typed_data';
+
 import 'package:flutter/painting.dart';
 import 'package:ledfx/src/core.dart';
-import 'package:n_dimensional_array/n_dimensional_array.dart';
 
 sealed class LEDFxEvent {
   static const CORE_SHUTDOWN = 'shutdown';
@@ -37,9 +38,9 @@ class LEDFxEventListener {
 
 class LEDFxEvents {
   final LEDFx ledfx;
-  const LEDFxEvents(this.ledfx) : _listeners = const {};
+  LEDFxEvents(this.ledfx) : _listeners = {};
 
-  final Map<String, List<LEDFxEventListener>> _listeners;
+  Map<String, List<LEDFxEventListener>> _listeners;
 
   void fireEvent(LEDFxEvent event) {
     final listeners = _listeners[event.eventType] ?? [];
@@ -111,7 +112,7 @@ class DevicesUpdatedEvent extends LEDFxEvent {
 
 class DeviceUpdateEvent extends LEDFxEvent {
   final String deviceID;
-  final NdArray pixels;
+  final List<Float32List> pixels;
   const DeviceUpdateEvent(this.deviceID, this.pixels)
     : super(LEDFxEvent.DEVICE_UPDATE);
 
@@ -123,7 +124,7 @@ class DeviceUpdateEvent extends LEDFxEvent {
 
 class VirtualUpdateEvent extends LEDFxEvent {
   final String virtualID;
-  final NdArray pixels;
+  final List<Float32List> pixels;
   const VirtualUpdateEvent(this.virtualID, this.pixels)
     : super(LEDFxEvent.VIRTUAL_UPDATE);
   @override
@@ -135,7 +136,7 @@ class VirtualUpdateEvent extends LEDFxEvent {
 class VisualisationUpdateEvent extends LEDFxEvent {
   final bool isDevice;
   final String visID;
-  final NdArray pixels;
+  final List<Float32List> pixels;
   final List<int> shape;
 
   VisualisationUpdateEvent(this.visID, this.pixels, this.shape, this.isDevice)
