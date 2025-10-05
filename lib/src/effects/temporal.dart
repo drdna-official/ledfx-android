@@ -88,7 +88,6 @@ class RainbowEffect extends TemporalEffect {
     pixels = fillRainbow(pixels!, _hue, hueDelta);
 
     _hue = _hue + 0.01;
-
     return null;
   }
 }

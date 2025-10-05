@@ -127,7 +127,7 @@ class LEDFx {
   }
 
   Future<void> start([bool pauseAll = false]) async {
-    print("starting LEDFx");
+    debugPrint("starting LEDFx");
 
     devices = Devices(ledfx: this);
     effects = Effects(ledfx: this);
@@ -135,33 +135,33 @@ class LEDFx {
 
     virtuals.resetForCore(this);
     // TODO: create virtuals from config
-    final device = await devices.addNewDevice(
-      DeviceConfig(
-        pixelCount: 200,
-        rgbwLED: "DNRGB",
-        name: "WLED Test",
-        type: "wled",
-        address: "192.168.0.12",
-        rows: 1,
-        syncMode: WLEDSyncMode.udp,
-      ),
-    );
-    if (device != null) {
-      await devices.initialiseDevices();
+    // final device = await devices.addNewDevice(
+    //   DeviceConfig(
+    //     pixelCount: 200,
+    //     rgbwLED: "DNRGB",
+    //     name: "WLED Test",
+    //     type: "wled",
+    //     address: "192.168.0.12",
+    //     rows: 1,
+    //     syncMode: WLEDSyncMode.udp,
+    //   ),
+    // );
+    // if (device != null) {
+    //   await devices.initialiseDevices();
 
-      final v =
-          virtuals.virtuals[config.virtuals.firstWhere(
-            (m) => m["deviceID"] == device.id,
-          )["id"]];
-      if (v != null) {
-        v.setEffect(
-          RainbowEffect(
-            ledfx: this,
-            config: EffectConfig(name: "Rainbow Effect"),
-          ),
-        );
-      }
-    }
+    //   final v =
+    //       virtuals.virtuals[config.virtuals.firstWhere(
+    //         (m) => m["deviceID"] == device.id,
+    //       )["id"]];
+    //   if (v != null) {
+    //     v.setEffect(
+    //       RainbowEffect(
+    //         ledfx: this,
+    //         config: EffectConfig(name: "Rainbow Effect"),
+    //       ),
+    //     );
+    //   }
+    // }
     if (pauseAll) virtuals.pauseAll();
   }
 

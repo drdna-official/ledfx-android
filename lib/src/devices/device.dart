@@ -19,7 +19,7 @@ class DeviceConfig {
   String name;
   String type;
   int pixelCount;
-  String rgbwLED;
+  bool rgbwLED;
   WLEDSyncMode? syncMode;
   int? rows;
 
@@ -110,8 +110,9 @@ class Devices extends Iterable<MapEntry<String, Device>> {
         resolvedDestination = await resolveDestination(ipAddr);
         if (resolvedDestination == "") throw Exception("could not be resolved");
       } catch (e) {
-        print("device could not be resolved -- $ipAddr, skipping device");
-        return null;
+        throw Exception(
+          "device could not be resolved -- $ipAddr, skipping device",
+        );
       }
 
       if (resolvedDestination.isNotEmpty) {
@@ -129,7 +130,9 @@ class Devices extends Iterable<MapEntry<String, Device>> {
     if (deviceType == "wled") {
       final wled = WLED(ipAddr: resolvedDestination);
       wledConfig = await wled.getConfig();
-      if (wledConfig == null) return null;
+      if (wledConfig == null) {
+        throw Exception("could not fetch config of wled device");
+      }
       if (config.name.isNotEmpty) {
         WLEDname = config.name;
       } else if (wledConfig.name == "WLED") {
@@ -144,7 +147,10 @@ class Devices extends Iterable<MapEntry<String, Device>> {
         ..name = WLEDname
         ..pixelCount = wledConfig.ledCount
         ..rgbwLED = config.rgbwLED
-        ..syncMode = syncMode;
+        ..syncMode = syncMode
+        ..rows = (wledConfig.rows == null)
+            ? 1
+            : int.tryParse(wledConfig.rows!) ?? 1;
     }
 
     final deviceID = nanoid(10);
@@ -365,6 +371,7 @@ abstract class Device {
         final frame = assembleFrame();
         if (frame == null) return;
         flush(frame);
+        print("flushing Device");
         ledfx.events.fireEvent(DeviceUpdateEvent(id, frame));
       }
     }

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' show min;
 import 'package:flutter/foundation.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';

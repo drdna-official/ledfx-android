@@ -99,7 +99,7 @@ class WLEDDevice extends NetworkedDevice {
     config
       ..name = wledConfig.name
       ..pixelCount = wledConfig.ledCount
-      ..rgbwLED = wledConfig.mode;
+      ..rgbwLED = wledConfig.rgbwLED;
 
     setupSubdevice();
   }
@@ -117,6 +117,7 @@ class WLED {
   Future<Map<String, dynamic>?> _requestGET(String endpoint) async {
     try {
       final response = await http.get(Uri.parse("http://$ipAddr/$endpoint"));
+      // final response = await http.get(Uri.parse("http://192.168.0.150"));
       if (response.statusCode == 200) {
         // The request was successful (status code 200).
         // Parse the JSON data from the response body.
@@ -158,13 +159,16 @@ class WLED {
   Future<WLEDConfig?> getConfig() async {
     try {
       final Map<String, dynamic>? configResp = await _requestGET("json/info");
+      if (configResp == null) {
+        throw Exception("could not fetch WLED config");
+      }
       return WLEDConfig(
-        ledCount: configResp!["leds"]["count"],
-        mode: configResp["leds"]["rgbw"],
+        ledCount: configResp["leds"]?["count"],
+        rgbwLED: configResp["leds"]?["rgbw"],
         build: configResp["vid"],
         name: configResp["name"],
         mac: configResp["mac"],
-        rows: configResp["matrix"]["h"],
+        rows: configResp["matrix"]?["h"],
       );
       // Set and parse Config from json response
 
@@ -189,15 +193,15 @@ class WLED {
 
 class WLEDConfig {
   final int ledCount;
-  final String mode;
-  final String build;
+  final bool rgbwLED;
+  final int build;
   final String name;
   final String mac;
   final String? rows;
 
   const WLEDConfig({
     required this.ledCount,
-    required this.mode,
+    required this.rgbwLED,
     required this.build,
     required this.name,
     required this.mac,

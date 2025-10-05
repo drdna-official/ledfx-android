@@ -247,6 +247,7 @@ class Virtual {
     }
     // Calculate the base interval needed for the desired FPS
     _frameInterval = fpsToSleepInterval(refreshRate);
+    print("starting virtual loop");
     _frameTimer = Timer.periodic(
       Duration(milliseconds: (_frameInterval * 1000).round()),
       _virtualLoop,
@@ -371,6 +372,7 @@ class Virtual {
     segmentsByDevice.forEach((deviceID, segments) {
       var data = <(List<Float32List>, int, int)>[];
       final device = ledfx.devices.devices[deviceID];
+
       if (device != null && device.isActive) {
         if (_calibration) {
           // renderCalibration(data, device, segments, deviceID);
@@ -499,7 +501,7 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
 
   Virtuals._({required this.ledfx}) {
     _paused = false;
-    _virtuals = {};
+    virtuals = {};
 
     ledfx.events.addListener((e) {
       fireAllFallbacks();
@@ -509,8 +511,7 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
 
   final LEDFx ledfx;
   late bool _paused;
-  late Map _virtuals;
-  final Map<String, Virtual> virtuals = {};
+  Map<String, Virtual> virtuals = {};
   @override
   Iterator<MapEntry<String, Virtual>> get iterator => virtuals.entries.iterator;
 
@@ -529,7 +530,7 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
   Virtual createVirtual({String? id, required VirtualConfig config}) {
     id = id ?? nanoid(10);
     final v = Virtual(id: id, config: config, ledfx: ledfx);
-    _virtuals[id] = v;
+    virtuals[id] = v;
     return v;
   }
 
@@ -541,7 +542,7 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
 
   Virtual create(String id, VirtualConfig config) {
     final v = Virtual(id: id, config: config, ledfx: ledfx);
-    _virtuals[id] = v;
+    virtuals[id] = v;
     return v;
   }
 
