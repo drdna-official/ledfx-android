@@ -323,7 +323,9 @@ class Virtual {
       final device = ledfx.devices.devices[config.deviceID];
       if (device == null) continue;
       if (!device.isActive) device.activate();
-      device.addSegment(config);
+      device.addSegment(
+        SegmentConfig(id, config.start, config.end, config.inverted),
+      );
     }
   }
 
@@ -368,7 +370,6 @@ class Virtual {
   void flush([List<Float32List>? pixels]) {
     pixels = pixels ?? _assembledFrame;
     if (pixels == null) return;
-
     segmentsByDevice.forEach((deviceID, segments) {
       var data = <(List<Float32List>, int, int)>[];
       final device = ledfx.devices.devices[deviceID];
@@ -379,7 +380,6 @@ class Virtual {
         } else if (config.mapping == "span") {
           for (final (start, stop, step, devStart, devEnd) in segments) {
             final seg = getSlice(pixels!, start, stop, step);
-
             data.add((seg, devStart, devEnd));
           }
         } else if (config.mapping == "copy") {
@@ -477,6 +477,10 @@ class Virtual {
 
     if (fallback != null) {}
 
+    if (_activeEffect != null) {
+      _activeEffect!.deactivate();
+    }
+
     _activeEffect = effect;
     _activeEffect!.activate(this);
     // TODO:
@@ -546,9 +550,49 @@ class Virtuals with Iterable<MapEntry<String, Virtual>> {
     return v;
   }
 
-  void pauseAll() {}
+  void pauseAll() {
+    _paused = !_paused;
+    for (final v in virtuals.values) {
+      v._paused = _paused;
+    }
+    // ledfx.events.fireEvent(event);
+  }
 
   void resetForCore(LEDFx ledfx) {}
 
-  void checkAndDeactivateDevices() {}
+  //   Checks all active virtuals and segments to compile a list of active devices,
+  // then deactivates any active devices not in that list.
+
+  // This process ensures that devices are only deactivated if no virtual or segment
+  // is using them, which is especially relevant during virtual or segment deactivation
+  // or reconfiguration.
+
+  // It also walks through all virtuals, if they are in the active devices list, but not active, they will be marked as streaming
+
+  // Note: This is a relatively expensive operation but only runs when a virtual
+  // is deactivated or segments are modified.
+  void checkAndDeactivateDevices() {
+    Set activeDevices = <String>{};
+
+    for (final virtual in virtuals.values) {
+      if (virtual.active) {
+        for (final s in virtual.segments) {
+          activeDevices.add(s.deviceID);
+        }
+      }
+    }
+
+    for (final dev in ledfx.devices.devices.values) {
+      if (!activeDevices.contains(dev.id) && dev.isActive) {
+        dev.deactivate();
+      }
+    }
+
+    for (final vid in ledfx.virtuals.virtuals.keys) {
+      final v = ledfx.virtuals.virtuals[vid];
+      v!._streaming = (activeDevices.contains(vid) && !v.active);
+    }
+
+    print("active devices - ${activeDevices.toString()}");
+  }
 }

@@ -117,6 +117,60 @@ List<T> getSlice<T>(List<T> data, int start, int stop, int step) {
   }
 }
 
+// Utility function to simulate numpy.linspace
+List<double> linspace(double start, double end, int num) {
+  if (num <= 1) {
+    return [start];
+  }
+  final List<double> result = List<double>.filled(num, 0.0, growable: false);
+  final double step = (end - start) / (num - 1);
+  for (int i = 0; i < num; i++) {
+    result[i] = start + i * step;
+  }
+  return result;
+}
+
+// --- Linear Interpolation Function (Equivalent to np.interp) ---
+// This is a simplified implementation for the specific use case (uniform xp).
+List<double> interp(List<double> x, List<double> xp, List<double> fp) {
+  // Assuming xp (old) is uniformly spaced from 0 to 1, and x (new) is also 0 to 1.
+  int N_xp = xp.length;
+  List<double> result = [];
+
+  // Calculate the step size on the original data (xp)
+  double xpStep = N_xp > 1 ? xp[1] - xp[0] : 1.0;
+
+  for (double target_x in x) {
+    // 1. Find the index (i) where target_x falls
+    // Index i is the point just before target_x
+    double index_f = (target_x - xp[0]) / xpStep;
+    int i = index_f.floor();
+
+    // Handle bounds (clamping)
+    if (i < 0) {
+      result.add(fp[0]);
+      continue;
+    }
+    if (i >= N_xp - 1) {
+      result.add(fp[N_xp - 1]);
+      continue;
+    }
+
+    // 2. Calculate the slope (m)
+    double x0 = xp[i];
+    double x1 = xp[i + 1];
+    double y0 = fp[i];
+    double y1 = fp[i + 1];
+
+    double m = (y1 - y0) / (x1 - x0);
+
+    // 3. Linear interpolation: y = y0 + m * (x - x0)
+    double interpolated_y = y0 + m * (target_x - x0);
+    result.add(interpolated_y);
+  }
+  return result;
+}
+
 List<Float32List> repeatAndTruncatePixels(
   List<Float32List> effectivePixels,
   int groupSize,
@@ -156,10 +210,12 @@ List<Float32List> repeatAndTruncatePixels(
   }
 }
 
-/// A fixed-size, auto-dropping circular buffer (like Python's collections.deque(maxlen=...)).
-class CircularBuffer<T> {
+/// A fixed-size, auto-dropping circular buffer (like Python's
+/// collections.deque(maxlen=...)).
+class CircularBuffer<T extends Object> {
   final int maxLength;
-  final List<T> _buffer;
+  // Use a nullable type internally to safely initialize the fixed-size list.
+  final List<T?> _buffer;
   int _head = 0; // Index where the next element will be written
   int _currentLength =
       0; // The actual number of elements currently in the buffer
@@ -167,7 +223,8 @@ class CircularBuffer<T> {
   /// Initializes the buffer with a fixed maximum size.
   CircularBuffer(this.maxLength)
     : assert(maxLength > 0),
-      _buffer = List<T>.filled(maxLength, null as T, growable: false);
+      // Dart allows initializing a List<T?> with nulls safely.
+      _buffer = List<T?>.filled(maxLength, null, growable: false);
 
   /// Adds a new item to the buffer. If the buffer is full, the oldest
   /// item is automatically overwritten (dropped).
@@ -181,29 +238,29 @@ class CircularBuffer<T> {
     }
   }
 
-  /// Returns a standard List containing the current elements in order
-  /// (from oldest to newest).
-  List<T> toList() {
-    if (_currentLength == 0) return [];
-
-    final result = List<T>.filled(_currentLength, null as T, growable: true);
-    for (int i = 0; i < _currentLength; i++) {
-      // Calculate the index for reading, starting from the oldest element
-      int readIndex = (_head - _currentLength + i + maxLength) % maxLength;
-      result[i] = _buffer[readIndex];
-    }
-    return result;
-  }
-
+  /// Returns the actual number of elements currently in the buffer.
   int get length => _currentLength;
 
-  T operator [](int index) {
-    if (index >= _currentLength || index < 0) {
-      throw RangeError.index(index, this, 'index', null, _currentLength);
+  /// Returns the contents of the buffer as a List<T>, ordered from oldest to newest.
+  List<T> toList() {
+    if (_currentLength == 0) {
+      return <T>[];
     }
-    // Calculate the physical index in the underlying list
-    int readIndex = (_head - _currentLength + index + maxLength) % maxLength;
-    return _buffer[readIndex];
+
+    final List<T> result = List<T>.filled(_currentLength, _buffer[0] as T);
+
+    // The starting index for reading is the oldest element, which is the
+    // element *after* the current head (where the next write will happen).
+    int readStart = (_head - _currentLength + maxLength) % maxLength;
+
+    for (int i = 0; i < _currentLength; i++) {
+      int bufferIndex = (readStart + i) % maxLength;
+      // We know these elements are non-null because we track _currentLength
+      // and only append non-null T objects.
+      result[i] = _buffer[bufferIndex] as T;
+    }
+
+    return result;
   }
 }
 

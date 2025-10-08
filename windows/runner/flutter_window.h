@@ -84,6 +84,7 @@ private:
   std::vector<flutter::EncodableValue> EnumerateAudioDevices();
   std::vector<flutter::EncodableValue> EnumerateDevices(EDataFlow dataFlow);
   std::string GetDeviceProperty(IMMDevice *device, const PROPERTYKEY &key);
+  std::vector<BYTE> GetDeviceFormatBlob(IMMDevice *device);
 
   // Audio capture methods
   void StartAudioCapture(const std::string &deviceId, const std::string &captureType,

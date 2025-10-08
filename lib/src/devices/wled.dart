@@ -3,6 +3,7 @@ import 'dart:developer';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:ledfx/src/devices/ddp.dart';
 import 'package:ledfx/src/devices/device.dart';
 import 'package:http/http.dart' as http;
 import 'package:nanoid/nanoid.dart';
@@ -61,12 +62,10 @@ class WLEDDevice extends NetworkedDevice {
         ledfx: ledfx,
         config: config,
       ),
-      WLEDSyncMode.ddp => RealtimeUDPDevice(
+      WLEDSyncMode.ddp => DDPDevice(
         id: nanoid(10),
         ipAddr: ipAddr,
-        port: 21324,
-        udpPacketType: "DNRGB",
-        minimizeTraffic: true,
+        port: 4048,
         ledfx: ledfx,
         config: config,
       ),
@@ -187,6 +186,15 @@ class WLED {
     } catch (e) {
       print(e.toString());
       return null;
+    }
+  }
+
+  static bool wledDDPsupport(int build) {
+    //https://github.com/Aircoookie/WLED/blob/main/CHANGELOG.md#build-2110060
+    if (build >= 2110060) {
+      return true;
+    } else {
+      return false;
     }
   }
 }

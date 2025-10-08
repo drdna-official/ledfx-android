@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:matrix2d/matrix2d.dart';
 
 class Packets {
-  static List<int> buidDRGBpacket(List<Float32List> data, [int? timeout]) {
+  static List<int> buidDRGBpacket(List<Uint8List> data, [int? timeout]) {
     // Generic DRGB packet encoding
     // Max LEDs: 490
 
@@ -18,7 +18,7 @@ class Packets {
   }
 
   static List<int> buidDNRGBpacket(
-    List<Float32List> data,
+    List<Uint8List> data,
     int ledStartIndex, [
     int? timeout,
   ]) {
@@ -55,7 +55,7 @@ class Packets {
   }
 
   // TODO: Implement
-  static List<int> buildWARLSpacket(List<Float32List> data, [int? timeout]) {
+  static List<int> buildWARLSpacket(List<Uint8List> data, [int? timeout]) {
     //     Generic WARLS packet encoding
     // Max LEDs: 255
 

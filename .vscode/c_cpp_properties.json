@@ -1,18 +1,15 @@
+{
+  "configurations": [
     {
-        "configurations": [
-            {
-                "name": "Win32",
-                "includePath": [
-                    "C:/flutter/**",
-                    "${workspaceFolder}/**"
-                ],
-                "defines": [],
-                "windowsSdkVersion": "10.0.19041.0", // Adjust as needed
-                "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/Hostx64/x64/cl.exe", // Adjust to your compiler path
-                "cStandard": "c17",
-                "cppStandard": "c++17",
-                "intelliSenseMode": "windows-msvc-x64"
-            }
-        ],
-        "version": 4
+      "name": "Win32",
+      "includePath": ["C:/flutter/**", "${workspaceFolder}/**"],
+      "defines": [],
+      "windowsSdkVersion": "10.0.19041.0", // Adjust as needed
+      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe", // Adjust to your compiler path
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-msvc-x64"
     }
+  ],
+  "version": 4
+}

@@ -140,8 +140,10 @@ class Devices extends Iterable<MapEntry<String, Device>> {
       } else {
         WLEDname = wledConfig.name;
       }
-      // TODO: check support for DDP
-      final WLEDSyncMode syncMode = WLEDSyncMode.udp;
+      WLEDSyncMode syncMode = WLEDSyncMode.udp;
+      if (WLED.wledDDPsupport(wledConfig.build)) {
+        syncMode = WLEDSyncMode.ddp;
+      }
 
       config
         ..name = WLEDname
@@ -355,15 +357,65 @@ abstract class Device {
       return;
     }
 
-    for (final (pixels, _, _) in data) {
-      final ndArr = NdArray.fromList(pixels);
-      if (ndArr.shape.isNotEmpty && ndArr.shape[0] != 0) {
-        if (ndArr.shape.first == 3 ||
-            (_pixels != null &&
-                NdArray.fromList(_pixels!).shape == ndArr.shape)) {
-          _pixels = pixels;
+    for (final (pixels, start, end) in data) {
+      final int sliceLength = end - start + 1;
+
+      // --- 1. if pixels.shape[0] != 0: ---
+      if (pixels.isNotEmpty && _pixels != null) {
+        // --- Get the shape/length of the input 'pixels' ---
+        final int inputLength = pixels.length;
+
+        // Assume inner lists (colors) have length 3 (R, G, B)
+        final bool isSingleColor = inputLength == 1 && pixels.first.length == 3;
+
+        // The shape check needs to be done carefully:
+
+        // --- 2. if np.shape(pixels) == (3,) ---
+        // This case means 'pixels' is a single 3-element color array, which should be tiled.
+        // Since our Dart structure is List<Float32List>, a single color is a List of length 1,
+        // containing a Float32List of length 3.
+        if (isSingleColor) {
+          // The original code implies that if pixels is a single color,
+          // it should be assigned to the *entire slice*, effectively tiling it.
+          final Float32List singleColor = pixels.first;
+
+          for (int i = start; i <= end; i++) {
+            // Perform the assignment (copying the 3 elements)
+            if (i < _pixels!.length) {
+              _pixels![i].setAll(0, singleColor);
+            }
+          }
+          return;
+        }
+        // --- 3. OR np.shape(self._pixels[start : end + 1]) == np.shape(pixels) ---
+        // Check if the input array (pixels) has the same number of rows as the slice (sliceLength).
+        else if (inputLength == sliceLength) {
+          // The number of pixels matches, perform slice assignment.
+          // Python: self._pixels[start : end + 1] = pixels
+
+          for (int i = 0; i < sliceLength; i++) {
+            final int targetIndex = start + i;
+
+            if (targetIndex < _pixels!.length) {
+              // Check if the inner size (color length) also matches before assignment
+              if (_pixels![targetIndex].length == pixels[i].length) {
+                // In-place assignment: overwrite the contents of the target list
+                _pixels![targetIndex].setAll(0, pixels[i]);
+              }
+            }
+          }
         }
       }
+
+      // final ndArr = NdArray.fromList(pixels);
+      // if (ndArr.shape.isNotEmpty && ndArr.shape[0] != 0) {
+
+      //   if (ndArr.shape.first == 3 ||
+      //       (_pixels != null &&
+      //           NdArray.fromList(_pixels!).shape == ndArr.shape)) {
+      //     _pixels = pixels;
+      //   }
+      // }
     }
 
     if (priorityVirtual != null) {
@@ -518,7 +570,7 @@ abstract class NetworkedDevice extends Device implements AsyncInitDevice {
   }
 }
 
-abstract class UDPDevice extends NetworkedDevice {
+abstract class UDPDevice extends NetworkedDevice implements AsyncInitDevice {
   UDPDevice({
     required super.ipAddr,
     super.refreshRate,
@@ -535,6 +587,7 @@ abstract class UDPDevice extends NetworkedDevice {
 
   @override
   Future<void> activate() async {
+    print("here");
     _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
     super.activate();
   }
@@ -583,11 +636,21 @@ class RealtimeUDPDevice extends UDPDevice {
     }
   }
 
-  void chooseAndSend(List<Float32List> data) {
-    final int frameSize = data.length;
-    final bool frameIsSame = minimizeTraffic && data == lastFrame;
-    log("Frame Size/Pixel Count = $frameSize");
+  List<Uint8List> clampToByte(List<Float32List> data) {
+    return data
+        .map(
+          (e) => Uint8List.fromList(
+            e.map((i) => i.toInt().clamp(0, 255)).toList(),
+          ),
+        )
+        .toList();
+  }
 
+  void chooseAndSend(List<Float32List> floatData) {
+    final int frameSize = floatData.length;
+    final bool frameIsSame = minimizeTraffic && floatData == lastFrame;
+
+    final data = clampToByte(floatData);
     switch ((udpPacketType, frameSize)) {
       case ("DRGB", <= 490):
         final udpData = Packets.buidDRGBpacket(data, timeout);
@@ -602,8 +665,9 @@ class RealtimeUDPDevice extends UDPDevice {
         for (int i = 0; i < numberOfPackets; i++) {
           int start = i * 489;
           int end = start + 489;
+          end = min(end, data.length);
           final udpData = Packets.buidDNRGBpacket(
-            data.getRange(start, end).toList(),
+            data.sublist(start, end),
             start,
             timeout,
           );
@@ -637,7 +701,7 @@ class RealtimeUDPDevice extends UDPDevice {
     }
   }
 
-  void transmitPacket(packet, bool frameIsSame) {
+  void transmitPacket(List<int> packet, bool frameIsSame) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     if (frameIsSame) {
       final halfTimeout =
@@ -645,13 +709,20 @@ class RealtimeUDPDevice extends UDPDevice {
 
       if (timestamp > lastFrameSendTime + halfTimeout) {
         if (_destination != null) {
-          _socket!.send([111], InternetAddress(_destination!), port);
+          // _socket!.send(packet, InternetAddress("192.168.0.150"), 12345);
+          _socket!.send(packet, InternetAddress(_destination!), port);
           lastFrameSendTime = timestamp;
         }
       }
     } else {
       if (_destination != null) {
-        _socket!.send([111], InternetAddress(_destination!), port);
+        // _socket!.send(packet, InternetAddress("192.168.0.150"), 12345);
+
+        final sent = _socket!.send(
+          packet,
+          InternetAddress(_destination!),
+          port,
+        );
         lastFrameSendTime = timestamp;
       }
     }

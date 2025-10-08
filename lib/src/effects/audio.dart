@@ -50,11 +50,11 @@ abstract class AudioInputSource {
 
   late double _volume;
   final ExpFilter _volumeFilter = ExpFilter(
-    val: -90,
+    val: -90.0,
     alphaDecay: 0.99,
     alphaRise: 0.99,
   );
-  double volume({filtered = true}) {
+  double volume({bool filtered = true}) {
     return filtered ? _volumeFilter.value : _volume;
   }
 
@@ -156,11 +156,22 @@ abstract class AudioInputSource {
     }
     if (audioDevices == null) queryDevices();
     if (audioDevices!.length > activeAudioDeviceIndex) {
+      print(
+        "starting audio capture with device -- ${audioDevices![activeAudioDeviceIndex].name}",
+      );
       _audio!.start({
         "deviceId": audioDevices![activeAudioDeviceIndex].id,
-        "captureType": "loopback",
+        "captureType": "capture",
+        // "sampleRate": 30000,
       });
       _audioStreamActive = true;
+    }
+  }
+
+  void stopAudioCapture() {
+    if (_audioStreamActive && _audio != null) {
+      _audio!.stop();
+      deactivate();
     }
   }
 

@@ -1,0 +1,62 @@
+#ifndef AUBIO_CONFIG_H
+#define AUBIO_CONFIG_H
+
+/* aubio configuration header for Flutter integration */
+
+#define AUBIO_VERSION "@AUBIO_VERSION@"
+
+/* Define if you have the <stdlib.h> header file. */
+#define HAVE_STDLIB_H 1
+
+/* Define if you have the <stdio.h> header file. */
+#define HAVE_STDIO_H 1
+
+/* Define if you have the <string.h> header file. */
+#define HAVE_STRING_H 1
+
+/* Define if you have the <math.h> header file. */
+#define HAVE_MATH_H 1
+
+/* Define if you have the <errno.h> header file. */
+#define HAVE_ERRNO_H 1
+
+/* Define if you have the <limits.h> header file. */
+#define HAVE_LIMITS_H 1
+
+/* Define if you have the <stdarg.h> header file. */
+#define HAVE_STDARG_H 1
+
+/* WAV file support */
+#cmakedefine HAVE_WAVREAD
+#cmakedefine HAVE_WAVWRITE
+
+/* Audio analysis features */
+#cmakedefine AUBIO_ENABLE_ONSET
+#cmakedefine AUBIO_ENABLE_PITCH
+#cmakedefine AUBIO_ENABLE_TEMPO
+#cmakedefine AUBIO_ENABLE_NOTES
+#cmakedefine AUBIO_ENABLE_MFCC
+#cmakedefine AUBIO_ENABLE_FFT
+
+/* Platform-specific features */
+#cmakedefine HAVE_WIN_HACKS
+#cmakedefine HAVE_SOURCE_APPLE_AUDIO
+#cmakedefine HAVE_ACCELERATE
+#cmakedefine HAVE_NEON
+
+/* Use memcpy hacks for performance */
+#define HAVE_MEMCPY_HACKS 1
+
+/* Use single precision by default (can be overridden) */
+#ifndef HAVE_AUBIO_DOUBLE
+typedef float smpl_t;
+typedef double lsmp_t;
+#else
+typedef double smpl_t;
+typedef long double lsmp_t;
+#endif
+
+/* C99 variadic macros support */
+#define HAVE_C99_VARARGS_MACROS 1
+
+#endif /* AUBIO_CONFIG_H */

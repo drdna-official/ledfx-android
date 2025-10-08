@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:ledfx/src/devices/device.dart';
-import 'package:ledfx/src/devices/wled.dart';
 import 'package:ledfx/src/effects/audio.dart';
 import 'package:ledfx/src/effects/effect.dart';
 import 'package:ledfx/src/effects/melbank.dart';
-import 'package:ledfx/src/effects/temporal.dart';
 import 'package:ledfx/src/events.dart';
 import 'package:ledfx/src/virtual.dart';
 import 'package:n_dimensional_array/domain/models/nd_array.dart';

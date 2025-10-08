@@ -1,29 +1,12 @@
 #include "flutter_window.h"
 
 #include <optional>
-
 #include "flutter/generated_plugin_registrant.h"
 #include <flutter/standard_method_codec.h>
 #include <flutter/event_stream_handler_functions.h>
-// CRITICAL: Include initguid.h FIRST to define GUIDs instead of just declaring them
-// #include <initguid.h>
-
-// Now include Windows headers and COM interfaces
 #include <windows.h>
-// #include <objbase.h>
 #include <comdef.h>
-// #include <mmdeviceapi.h>
-// #include <audioclient.h>
-// #include <audiopolicy.h>
-// #include <functiondiscoverykeys_devpkey.h>
-// #include <avrt.h>
 #include "utils.h"
-
-// Link required libraries
-// #pragma comment(lib, "ole32.lib")
-// #pragma comment(lib, "oleaut32.lib")
-// #pragma comment(lib, "uuid.lib")
-// #pragma comment(lib, "winmm.lib")
 
 FlutterWindow::FlutterWindow(const flutter::DartProject &project)
     : project_(project)
@@ -472,6 +455,16 @@ std::vector<flutter::EncodableValue> FlutterWindow::EnumerateDevices(EDataFlow d
         device_info[flutter::EncodableValue("name")] = flutter::EncodableValue(GetDeviceProperty(device, PKEY_Device_FriendlyName));
         device_info[flutter::EncodableValue("description")] = flutter::EncodableValue(GetDeviceProperty(device, PKEY_Device_DeviceDesc));
         device_info[flutter::EncodableValue("isActive")] = flutter::EncodableValue(true);
+
+        int32_t sample_rate = 0;
+        std::vector<BYTE> format_blob = GetDeviceFormatBlob(device);
+        if (format_blob.size() >= sizeof(WAVEFORMATEX))
+        {
+          WAVEFORMATEX *wfx = reinterpret_cast<WAVEFORMATEX *>(format_blob.data());
+          sample_rate = wfx->nSamplesPerSec;
+        }
+        device_info[flutter::EncodableValue("sampleRate")] = flutter::EncodableValue(sample_rate);
+
         device_info[flutter::EncodableValue("isDefault")] = flutter::EncodableValue(
             default_id && wcscmp(device_id, default_id) == 0);
         device_info[flutter::EncodableValue("type")] = flutter::EncodableValue(
@@ -517,6 +510,34 @@ std::string FlutterWindow::GetDeviceProperty(IMMDevice *device, const PROPERTYKE
   }
 
   return result;
+}
+
+std::vector<BYTE> FlutterWindow::GetDeviceFormatBlob(IMMDevice *device)
+{
+  std::vector<BYTE> format_data;
+  IPropertyStore *property_store = nullptr;
+  // Use the key for the device's default audio format
+  const PROPERTYKEY key = PKEY_AudioEngine_DeviceFormat;
+
+  HRESULT hr = device->OpenPropertyStore(STGM_READ, &property_store);
+
+  if (SUCCEEDED(hr))
+  {
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    hr = property_store->GetValue(key, &pv);
+
+    // Check for success AND the correct type (BLOB)
+    if (SUCCEEDED(hr) && pv.vt == VT_BLOB && pv.blob.cbSize > 0)
+    {
+      // Copy the binary data into the vector
+      format_data.assign(pv.blob.pBlobData, pv.blob.pBlobData + pv.blob.cbSize);
+    }
+
+    PropVariantClear(&pv);
+    property_store->Release();
+  }
+  return format_data;
 }
 
 void FlutterWindow::StartAudioCapture(const std::string &deviceId, const std::string &captureType,
@@ -609,9 +630,9 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   WAVEFORMATEX custom_format = {};
   custom_format.wFormatTag = WAVE_FORMAT_PCM;                         // PCM
   custom_format.nChannels = static_cast<WORD>(channels_);             // 1=Mono, 2=Stereo
-  custom_format.nSamplesPerSec = static_cast<WORD>(sample_rate_);     // Sample rate, e.g. 44100
+  custom_format.nSamplesPerSec = static_cast<DWORD>(sample_rate_);    // Sample rate, e.g. 44100
   custom_format.wBitsPerSample = static_cast<WORD>(bits_per_sample_); // Bit depth
-  custom_format.nBlockAlign = custom_format.nChannels * custom_format.wBitsPerSample / 8;
+  custom_format.nBlockAlign = static_cast<WORD>(custom_format.nChannels * custom_format.wBitsPerSample / 8);
   custom_format.nAvgBytesPerSec = custom_format.nSamplesPerSec * custom_format.nBlockAlign;
   custom_format.cbSize = 0;
 

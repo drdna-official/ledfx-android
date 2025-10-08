@@ -25,6 +25,7 @@ class AudioDevice extends Equatable {
   final String id;
   final String name;
   final String description;
+  final int defaultSampleRate;
   final bool isActive;
   final bool isDefault;
   final AudioDeviceType type;
@@ -33,6 +34,7 @@ class AudioDevice extends Equatable {
     required this.id,
     required this.name,
     required this.description,
+    required this.defaultSampleRate,
     required this.isActive,
     required this.isDefault,
     required this.type,
@@ -44,6 +46,7 @@ class AudioDevice extends Equatable {
       name: map['name'] ?? '',
       description: map['description'] ?? '',
       isActive: map['isActive'] ?? false,
+      defaultSampleRate: map['sampleRate'] ?? 44100,
       isDefault: map['isDefault'] ?? false,
       type: AudioDeviceType.values.firstWhere(
         (e) => e.name == map['type'],

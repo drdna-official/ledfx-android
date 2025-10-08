@@ -33,7 +33,7 @@ class EffectConfig {
 }
 
 abstract interface class EffectMixin {
-  void onActivate();
+  void onActivate(int pixelCount);
 }
 
 abstract class Effect {
@@ -63,7 +63,7 @@ abstract class Effect {
     _pixels = List.filled(virtual.effectivePixelCount, Float32List(3));
 
     if (this is EffectMixin) {
-      (this as EffectMixin).onActivate();
+      (this as EffectMixin).onActivate(virtual.effectivePixelCount);
     }
     _active = true;
   }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/devices/device.dart';
+import 'package:ledfx/src/effects/audio.dart';
 import 'package:ledfx/src/effects/effect.dart';
 import 'package:ledfx/src/effects/temporal.dart';
+import 'package:ledfx/src/effects/wavelength.dart';
 import 'package:ledfx/src/virtual.dart';
 
 class HomeBody extends StatefulWidget {
@@ -14,6 +16,14 @@ class HomeBody extends StatefulWidget {
 }
 
 class _HomeBodyState extends State<HomeBody> {
+  bool _deviceOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.ledfx.audio = AudioAnalysisSource(ledfx: widget.ledfx);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -36,6 +46,18 @@ class _HomeBodyState extends State<HomeBody> {
                 },
                 label: Text("Refresh"),
               ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  widget.ledfx.audio!.startAudioCapture();
+                },
+                label: Text("Start Audio Capture"),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  widget.ledfx.audio!.stopAudioCapture();
+                },
+                label: Text("Stop Audio Capture"),
+              ),
             ],
           ),
 
@@ -43,7 +65,8 @@ class _HomeBodyState extends State<HomeBody> {
             shrinkWrap: true,
             children: widget.ledfx.config.virtuals.map((v) {
               final config = v["config"] as VirtualConfig;
-              final virtual = widget.ledfx.virtuals.virtuals[v["id"]];
+              final Virtual? virtual = widget.ledfx.virtuals.virtuals[v["id"]];
+              final device = widget.ledfx.devices.devices[v["deviceID"]];
 
               final effectName =
                   (virtual != null && virtual.activeEffect != null)
@@ -62,6 +85,19 @@ class _HomeBodyState extends State<HomeBody> {
                       Text("ID: ${config.deviceID}"),
                       Text("virtual ID: ${v["id"]}"),
                       Text("effect: $effectName"),
+                      Switch(
+                        value: virtual?.active ?? _deviceOn,
+                        onChanged: (bool newVal) {
+                          if (virtual == null) return;
+
+                          setState(() {
+                            _deviceOn = newVal;
+                            _deviceOn
+                                ? virtual.activate()
+                                : virtual.deactivate();
+                          });
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -70,9 +106,9 @@ class _HomeBodyState extends State<HomeBody> {
                     final virtual = widget.ledfx.virtuals.virtuals[v["id"]];
                     if (virtual != null) {
                       virtual.setEffect(
-                        RainbowEffect(
+                        WavelengthEffect(
                           ledfx: widget.ledfx,
-                          config: EffectConfig(name: "Rainbow Effect"),
+                          config: EffectConfig(name: "wavelength"),
                         ),
                       );
                       setState(() {});

@@ -1,0 +1,36 @@
+name: AubioBindings
+description: generates aubio bindings
+output: "lib/aubio_bindings.dart"
+headers:
+  entry-points:
+    - "src/aubio/src/aubio.h"
+ions:
+  include:
+    - "aubio_.*"
+    - "cvec_.*"
+    - "fvec_.*"
+    - "lvec_.*"
+    - "fmat_.*"
+    - "new_.*"
+    - "del_.*"
+structs:
+  include:
+    - "aubio_.*"
+    - "fvec_t"
+    - "lvec_t"
+    - "cvec_t"
+    - "char_t"
+    - "smpl_t"
+    - "lsmp_t"
+    - "uint_t"
+    - "sint_t"
+
+compiler-opts:
+  - "-Isrc"
+  - "-Isrc/aubio/src"
+
+preamble: |
+  // Generated FFI bindings for aubio audio analysis library
+  // 
+  // This file contains the low-level FFI bindings for aubio.
+  // Use the higher-level classes in flutter_aubio for a more convenient API.

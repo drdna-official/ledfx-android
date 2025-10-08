@@ -52,7 +52,8 @@ abstract class TemporalEffect extends Effect implements EffectMixin {
   double? effectLoop();
 
   @override
-  void onActivate() {
+  void onActivate(int pixelCount) {
+    print("starting effect loop");
     _active = true;
     _loopTimer = Timer.periodic(
       Duration(milliseconds: currentIntervalInMiliS),

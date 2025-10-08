@@ -1,7 +1,5 @@
 import 'dart:io';
 
-import 'package:dnsolve/dnsolve.dart';
-
 // Future<String> resolveDestination(String address) async {
 //   try {
 //     final res = await DNSolve().lookup(address);
