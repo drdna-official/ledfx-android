@@ -1,7 +1,7 @@
 
 [submodule "src/aubio"]
 	path = src/aubio
-	url = https://github.com/aubio/aubio.git
+	url = https://github.com/drdna-official/aubio.git
 [submodule "src/libsamplerate"]
 	path = src/libsamplerate
-	url = https://github.com/libsndfile/libsamplerate.git
+	url = https://github.com/drdna-official/libsamplerate.git
