@@ -39,7 +39,7 @@ mixin GradientAudioEffect on Effect {
     return max(pixelCount, 256);
   }();
 
-  List<Float32List> applyGradient(List<double> y) {
+  List<Float64List> applyGradient(List<double> y) {
     assertGradient();
 
     // output = self.get_gradient() * y
@@ -69,21 +69,19 @@ mixin GradientAudioEffect on Effect {
     // The result is N x 3 (N rows for pixels, 3 columns for R, G, B).
     // Our current `output` is 3 x N. We need to transpose it.
 
-    List<List<double>> transposedOutput = List.filled(
-      N,
-      List<double>.filled(3, 0),
-    );
+    List<List<double>> transposedOutput = transpose3xNToNx3(output);
 
     // Transposition: output[i, j] becomes transposedOutput[j, i]
-    for (int i = 0; i < 3; i++) {
-      // i is the channel (R, G, B)
-      for (int j = 0; j < N; j++) {
-        // j is the pixel index
-        transposedOutput[j][i] = output[i][j];
-      }
-    }
+    // for (int i = 0; i < 3; i++) {
+    //   // i is the channel (R, G, B)
+    //   for (int j = 0; j < N; j++) {
+    //     // j is the pixel index
+    //     transposedOutput[j][i] = output[i][j];
+    //   }
+    // }
 
-    return transposedOutput.map((e) => Float32List.fromList(e)).toList();
+    final t = transposedOutput.map((e) => Float64List.fromList(e)).toList();
+    return t;
   }
 
   void assertGradient() {
@@ -350,4 +348,49 @@ mixin GradientAudioEffect on Effect {
     }
     return rolled;
   }
+}
+
+List<List<double>> transpose3xNToNx3(List<List<double>> matrix3xN) {
+  // 1. Basic Validation
+  if (matrix3xN.isEmpty) {
+    return []; // Handle empty input gracefully.
+  }
+  if (matrix3xN.length != 3) {
+    throw ArgumentError(
+      'The input matrix must have exactly 3 rows for a 3xN transposition.',
+    );
+  }
+
+  // N is the number of columns in the 3xN matrix, which is the length
+  // of any of the rows (assuming a well-formed matrix).
+  final int numColsN = matrix3xN[0].length;
+  const int numRows3 = 3;
+
+  // 2. Initialize the result matrix (Nx3).
+  // It will have N rows and 3 columns.
+  final List<List<double>> matrixNx3 = List.generate(
+    numColsN, // N rows
+    (_) => List<double>.filled(numRows3, 0.0), // 3 columns filled with 0.0
+  );
+
+  // 3. Perform the transposition:
+  // The element at matrix3xN[i][j] moves to matrixNx3[j][i].
+  // i is the row index of the original matrix (0 to 2).
+  // j is the column index of the original matrix (0 to N-1).
+  for (int i = 0; i < numRows3; i++) {
+    // Loop through original rows (i=0, 1, 2)
+    // Validate that all rows have the same length (N)
+    if (matrix3xN[i].length != numColsN) {
+      throw ArgumentError(
+        'All rows in the input matrix must have the same number of columns.',
+      );
+    }
+
+    for (int j = 0; j < numColsN; j++) {
+      // Loop through original columns (j=0 to N-1)
+      matrixNx3[j][i] = matrix3xN[i][j];
+    }
+  }
+
+  return matrixNx3;
 }

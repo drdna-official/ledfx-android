@@ -112,7 +112,7 @@ class DevicesUpdatedEvent extends LEDFxEvent {
 
 class DeviceUpdateEvent extends LEDFxEvent {
   final String deviceID;
-  final List<Float32List> pixels;
+  final List<Float64List> pixels;
   const DeviceUpdateEvent(this.deviceID, this.pixels)
     : super(LEDFxEvent.DEVICE_UPDATE);
 
@@ -124,7 +124,7 @@ class DeviceUpdateEvent extends LEDFxEvent {
 
 class VirtualUpdateEvent extends LEDFxEvent {
   final String virtualID;
-  final List<Float32List> pixels;
+  final List<Float64List> pixels;
   const VirtualUpdateEvent(this.virtualID, this.pixels)
     : super(LEDFxEvent.VIRTUAL_UPDATE);
   @override
@@ -136,7 +136,7 @@ class VirtualUpdateEvent extends LEDFxEvent {
 class VisualisationUpdateEvent extends LEDFxEvent {
   final bool isDevice;
   final String visID;
-  final List<Float32List> pixels;
+  final List<Float64List> pixels;
   final List<int> shape;
 
   VisualisationUpdateEvent(this.visID, this.pixels, this.shape, this.isDevice)

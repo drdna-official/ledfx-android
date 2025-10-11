@@ -44,7 +44,7 @@ class ExpFilter {
     }
 
     // 2. Handle array/list update
-    if (value is List<double> || value is Float32List || value is Float64List) {
+    if (value is List<double> || value is Float64List || value is Float64List) {
       // Dart requires converting to a typed list for efficient element-wise operation
       final List<double> currentValueList = List<double>.from(value);
       final List<double> newValueList = List<double>.from(newValue);
@@ -78,8 +78,8 @@ class ExpFilter {
       });
 
       // Update the internal value with the same type it started with
-      if (value is Float32List) {
-        value = Float32List.fromList(smoothedList);
+      if (value is Float64List) {
+        value = Float64List.fromList(smoothedList);
       } else if (value is Float64List) {
         value = Float64List.fromList(smoothedList);
       } else {

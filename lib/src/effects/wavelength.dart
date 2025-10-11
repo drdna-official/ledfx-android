@@ -16,7 +16,7 @@ class WavelengthEffect extends Effect
 
   @override
   void audioDataUpdated(AudioAnalysisSource audio) {
-    r = melbank(filtered: true);
+    r = melbank(filtered: true, size: pixelCount);
   }
 
   @override

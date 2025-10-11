@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
 
@@ -8,8 +9,13 @@ sealed class RecordingEvent {
 }
 
 class AudioEvent extends RecordingEvent {
-  final Uint8List data;
-  const AudioEvent(this.data);
+  final Float64List data;
+  AudioEvent(List<Object?> adata)
+    : data = Float64List.fromList(
+        adata.map((e) {
+          return (e == null) ? 0.0 : e as double;
+        }).toList(),
+      );
 }
 
 class DevicesInfoEvent extends RecordingEvent {

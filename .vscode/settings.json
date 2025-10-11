@@ -93,7 +93,9 @@
     "xtree": "cpp",
     "xutility": "cpp",
     "phasevoc.h": "c",
-    "aubio.h": "c"
+    "aubio.h": "c",
+    "complex": "cpp",
+    "source_location": "cpp"
   },
   "C_Cpp.errorSquiggles": "disabled"
 }

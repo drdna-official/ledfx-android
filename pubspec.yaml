@@ -57,7 +57,7 @@ aubio_config:
       # Disable external dependencies to simplify build
       AUBIO_DISABLE_AVCODEC: "ON"
       AUBIO_DISABLE_SNDFILE: "ON"
-      AUBIO_DISABLE_SAMPLERATE: "ON"
+      AUBIO_DISABLE_SAMPLERATE: "OFF"
       AUBIO_DISABLE_JACK: "ON"
       AUBIO_DISABLE_FFTW3: "ON"
       # Enable built-in simple wav support

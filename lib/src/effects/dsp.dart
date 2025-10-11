@@ -39,7 +39,7 @@ class Filterbank {
     : coeffs = List.generate(nBands, (_) => List.filled(fftSize ~/ 2 + 1, 0.0));
 
   /// Triangular mel-style bands
-  void setTriangleBands(Float32List freqs, int sampleRate) {
+  void setTriangleBands(Float64List freqs, int sampleRate) {
     if (freqs.length != nBands + 2) {
       throw Exception("Need nBands+2 frequencies for triangle bands");
     }
@@ -177,8 +177,8 @@ class DigitalFilter {
   }
 
   /// Process a frame (array of samples)
-  Float32List processFrame(Float32List input) {
-    return Float32List.fromList(input.map(processSample).toList());
+  Float64List processFrame(Float64List input) {
+    return Float64List.fromList(input.map(processSample).toList());
   }
 
   void reset() {
@@ -198,7 +198,7 @@ class AudioDSP {
   final List<double> window;
 
   // Stores recent audio samples, size is typically >= fftSize
-  final Float32List _buffer;
+  final Float64List _buffer;
 
   // Pitch params
   double pitchTolerance = 0.15;
@@ -210,10 +210,10 @@ class AudioDSP {
   AudioDSP(this.fftSize, this.hopSize, this.sampleRate)
     : window = Window.hann(fftSize),
       // Initialize the buffer to be large enough (e.g., fftSize) and filled with zeros
-      _buffer = Float32List(fftSize);
+      _buffer = Float64List(fftSize);
 
   /// Phase vocoder frame -> cvec
-  Cvec pvoc(Float32List frame) {
+  Cvec pvoc(Float64List frame) {
     if (frame.length != hopSize) {
       throw Exception(
         "Input frame size must equal the declared hopSize ($hopSize)",
@@ -305,7 +305,7 @@ class AudioDSP {
 
   /// Analyze frame: returns pitch, onset, tempo, energy, dbSPL
   /// The input frame is the hopSize chunk.
-  Map<String, dynamic> analyzeFrame(Float32List hopFrame, int frameIndex) {
+  Map<String, dynamic> analyzeFrame(Float64List hopFrame, int frameIndex) {
     // 1. Run PVOC (updates buffer, runs FFT, gets Cvec)
     var cvec = pvoc(hopFrame);
 

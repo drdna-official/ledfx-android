@@ -136,10 +136,8 @@ LPCSTR MessageToString(UINT message)
     return "UNKNOWN_MESSAGE";
   }
 }
-LRESULT
-FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
-                              WPARAM const wparam,
-                              LPARAM const lparam) noexcept
+
+LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM const wparam, LPARAM const lparam) noexcept
 {
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_)
@@ -161,20 +159,32 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   case WM_FLUTTER_AUDIO_DATA:
   {
-    auto audio_data = reinterpret_cast<std::vector<uint8_t> *>(wparam);
-    if (event_sink_ && audio_data)
+    auto float_audio_data = reinterpret_cast<std::vector<float> *>(wparam);
+
+    if (event_sink_ && float_audio_data)
     {
+      // Convert float vector to EncodableList for Flutter
+      flutter::EncodableList audio_data;
+      audio_data.reserve(float_audio_data->size());
+
+      for (float sample : *float_audio_data)
+      {
+        audio_data.push_back(flutter::EncodableValue(static_cast<double>(sample)));
+      }
+
       std::map<flutter::EncodableValue, flutter::EncodableValue> event_map;
       event_map[flutter::EncodableValue("type")] = flutter::EncodableValue("audio");
-      event_map[flutter::EncodableValue("data")] = flutter::EncodableValue(*audio_data);
+      event_map[flutter::EncodableValue("data")] = flutter::EncodableValue(audio_data);
       event_sink_->Success(flutter::EncodableValue(event_map));
     }
-    // Remove from posted events
-    posted_audio_events_.erase(
-        std::remove_if(posted_audio_events_.begin(), posted_audio_events_.end(),
-                       [audio_data](const auto &ptr)
-                       { return ptr.get() == audio_data; }),
-        posted_audio_events_.end());
+    {
+      std::lock_guard<std::mutex> lock(events_mutex_);
+      posted_audio_events_.erase(
+          std::remove_if(posted_audio_events_.begin(), posted_audio_events_.end(),
+                         [float_audio_data](const auto &ptr)
+                         { return ptr.get() == float_audio_data; }),
+          posted_audio_events_.end());
+    }
     return 0;
   }
 
@@ -236,9 +246,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 }
 
-void FlutterWindow::HandleMethodCall(
-    const flutter::MethodCall<flutter::EncodableValue> &method_call,
-    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result)
+void FlutterWindow::HandleMethodCall(const flutter::MethodCall<flutter::EncodableValue> &method_call, std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result)
 {
 
   if (method_call.method_name() == "requestDeviceList")
@@ -317,15 +325,15 @@ void FlutterWindow::HandleMethodCall(
       }
       int sampleRate = getIntArg("sampleRate", 44100);
       int channels = getIntArg("channels", 1);
-      int bitsPerSample = getIntArg("bitsPerSample", 16);
+      int blocksize = getIntArg("blockSize", 0); // 0 means use default
+      std::cout << "sent blockSize: " << blocksize << " frames" << std::endl;
 
       // 4. Start recording
       StartAudioCapture(
           deviceIdOpt.value(),
           captureTypeOpt.value(),
           sampleRate,
-          channels,
-          bitsPerSample);
+          channels, blocksize);
       result->Success();
     }
     catch (const std::exception &e)
@@ -352,21 +360,31 @@ void FlutterWindow::HandleMethodCall(
     result->NotImplemented();
   }
 }
+void FlutterWindow::OnStreamListen(std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events)
+{
+  event_sink_ = std::move(events);
+}
+void FlutterWindow::OnStreamCancel()
+{
 
+  event_sink_ = nullptr;
+}
 // Send audio data (PCM bytes) safely on platform thread
-void FlutterWindow::SendAudioDataEvent(const std::vector<uint8_t> &pcm16_data)
+void FlutterWindow::SendAudioDataEvent(const std::vector<float> &ieee_float_data)
 {
   if (!GetHandle())
     return;
 
-  auto audio_copy = std::make_shared<std::vector<uint8_t>>(pcm16_data);
+  auto audio_copy = std::make_shared<std::vector<float>>(ieee_float_data);
+
+  {
+    std::lock_guard<std::mutex> lock(events_mutex_);
+    posted_audio_events_.push_back(audio_copy);
+  }
 
   // Post to main thread
   PostMessage(GetHandle(), WM_FLUTTER_AUDIO_DATA,
               reinterpret_cast<WPARAM>(audio_copy.get()), 0);
-
-  // Keep shared_ptr alive until processed
-  posted_audio_events_.push_back(audio_copy);
 }
 
 void FlutterWindow::SendStateEvent(const std::string &state_message)
@@ -381,8 +399,7 @@ void FlutterWindow::SendStateEvent(const std::string &state_message)
   posted_state_events_.push_back(msg);
 }
 
-void FlutterWindow::SendDevicesInfoEvent(
-    const std::vector<flutter::EncodableValue> &devices_info)
+void FlutterWindow::SendDevicesInfoEvent(const std::vector<flutter::EncodableValue> &devices_info)
 {
   if (!GetHandle())
     return;
@@ -540,8 +557,7 @@ std::vector<BYTE> FlutterWindow::GetDeviceFormatBlob(IMMDevice *device)
   return format_data;
 }
 
-void FlutterWindow::StartAudioCapture(const std::string &deviceId, const std::string &captureType,
-                                      int sampleRate, int channels, int bitsPerSample)
+void FlutterWindow::StartAudioCapture(const std::string &deviceId, const std::string &captureType, int sampleRate, int channels, int blockSize)
 {
   StopAudioCapture();
 
@@ -549,7 +565,7 @@ void FlutterWindow::StartAudioCapture(const std::string &deviceId, const std::st
   current_capture_type_ = captureType;
   sample_rate_ = sampleRate;
   channels_ = channels;
-  bits_per_sample_ = bitsPerSample;
+  target_blocksize_ = blockSize;
 
   is_capturing_ = true;
   capture_thread_ = std::thread(&FlutterWindow::AudioCaptureThread, this);
@@ -628,11 +644,11 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
   }
 
   WAVEFORMATEX custom_format = {};
-  custom_format.wFormatTag = WAVE_FORMAT_PCM;                         // PCM
-  custom_format.nChannels = static_cast<WORD>(channels_);             // 1=Mono, 2=Stereo
-  custom_format.nSamplesPerSec = static_cast<DWORD>(sample_rate_);    // Sample rate, e.g. 44100
-  custom_format.wBitsPerSample = static_cast<WORD>(bits_per_sample_); // Bit depth
-  custom_format.nBlockAlign = static_cast<WORD>(custom_format.nChannels * custom_format.wBitsPerSample / 8);
+  custom_format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;               // Float
+  custom_format.nChannels = static_cast<WORD>(channels_);          // 1=Mono, 2=Stereo
+  custom_format.nSamplesPerSec = static_cast<DWORD>(sample_rate_); // Sample rate, e.g. 44100
+  custom_format.wBitsPerSample = static_cast<WORD>(32);            // Bit depth
+  custom_format.nBlockAlign = static_cast<WORD>(channels_ * 32 / 8);
   custom_format.nAvgBytesPerSec = custom_format.nSamplesPerSec * custom_format.nBlockAlign;
   custom_format.cbSize = 0;
 
@@ -678,11 +694,30 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
                           ? (AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
                           : AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
+  int device_sample_rate = mix_format ? mix_format->nSamplesPerSec : sample_rate_;
+
+  std::cout << "Device SampleRate/Mic Rate " << device_sample_rate << " Hz" << std::endl;
+
+  REFERENCE_TIME buffer_duration;
+  if (target_blocksize_ > 0)
+  {
+    // Use specified blocksize
+    buffer_duration = CalculateBufferDuration(device_sample_rate, target_blocksize_);
+
+    std::cout << "Using blocksize: " << target_blocksize_ << " frames" << std::endl;
+    std::cout << "Buffer duration: " << (buffer_duration / 10000.0) << " ms" << std::endl;
+  }
+  else
+  {
+    // Use default buffer duration
+    buffer_duration = 10000000; // 1s in 100ns units
+    std::cout << "blockSize not specified, using buffer duration: " << (buffer_duration / 10000.0) << " ms" << std::endl;
+  }
   // Initialize audio client
   hr = audio_client_->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
       streamFlags,
-      10000000, // 1 second buffer
+      buffer_duration,
       0,
       mix_format,
       nullptr);
@@ -697,7 +732,15 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
                        : "Failed to initialize audio client (microphone)");
     return;
   }
-
+  // Get actual buffer size that was allocated
+  UINT32 actual_buffer_frame_size;
+  hr = audio_client_->GetBufferSize(&actual_buffer_frame_size);
+  if (SUCCEEDED(hr))
+  {
+    std::cout << "Requested buffer duration: " << (buffer_duration / 10000.0) << " ms" << std::endl;
+    std::cout << "Actual buffer size: " << actual_buffer_frame_size << " frames" << std::endl;
+    std::cout << "Actual buffer duration: " << (actual_buffer_frame_size * 1000.0 / sample_rate_) << " ms" << std::endl;
+  }
   // Set event handle
   hr = audio_client_->SetEventHandle(hEvent);
   if (FAILED(hr))
@@ -718,6 +761,15 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
     return;
   }
 
+  // Clear/Reset ring buffer
+  {
+    std::lock_guard<std::mutex> lock(ring_mutex_);
+    audio_ring_buffer_.clear();
+    audio_ring_buffer_.shrink_to_fit(); // optional
+    ring_capacity_ = 0;
+    ring_head_ = ring_tail_ = 0;
+  }
+
   // Start capture
   audio_client_->Start();
   SendStateEvent("recordingStarted");
@@ -733,6 +785,7 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
 
       while (packet_length != 0 && is_capturing_)
       {
+
         BYTE *data = nullptr;
         UINT32 frames_available = 0;
         DWORD flags = 0;
@@ -740,15 +793,58 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
         hr = capture_client_->GetBuffer(&data, &frames_available, &flags, nullptr, nullptr);
         if (SUCCEEDED(hr))
         {
-          UINT32 buffer_size = frames_available * mix_format->nBlockAlign;
 
-          if (buffer_size > 0)
+          UINT32 useFrames = frames_available; // use all available frames
+          float *float_data = reinterpret_cast<float *>(data);
+          UINT32 float_count = useFrames * mix_format->nChannels; // Number of float samples
+
+          if (flags & AUDCLNT_BUFFERFLAGS_SILENT)
           {
-            std::vector<uint8_t> audio_data(data, data + buffer_size);
-            SendAudioDataEvent(audio_data);
+            // produce zeros
+            std::vector<float> zero_buf(float_count, 0.0f);
+            RingBufferPush(zero_buf.data(), zero_buf.size());
+          }
+          else if (float_count > 0)
+          {
+            // push whatever we have into the ring (interleaved)
+            RingBufferPush(float_data, float_count);
           }
 
+          // Release the frames we read from WASAPI
           capture_client_->ReleaseBuffer(frames_available);
+
+          // Now: while ring has enough samples to form one target block, pop and send
+          // target_blocksize_ is frames; convert to sample count:
+          size_t frames_needed = (target_blocksize_ > 0) ? target_blocksize_ : useFrames;
+          if (frames_needed == 0)
+            frames_needed = useFrames; // fallback
+          size_t samples_needed = frames_needed * mix_format->nChannels;
+
+          // Loop: produce as many full blocks as available
+          while (RingBufferSize() >= samples_needed && is_capturing_)
+          {
+            // Pop exactly samples_needed floats
+            std::vector<float> block = RingBufferPop(samples_needed);
+
+            // If device is stereo and you want mono, convert here:
+            if (mix_format->nChannels == 2)
+            {
+              std::vector<float> mono_block;
+              mono_block.reserve(frames_needed);
+              for (size_t i = 0; i + 1 < block.size(); i += 2)
+              {
+                float left = block[i];
+                float right = block[i + 1];
+                mono_block.push_back((left + right) * 0.5f);
+              }
+              SendAudioDataEvent(mono_block);
+            }
+            else
+            {
+              // If channels == 1, send as-is.
+              SendAudioDataEvent(block);
+            }
+          }
         }
 
         hr = capture_client_->GetNextPacketSize(&packet_length);
@@ -764,13 +860,120 @@ void FlutterWindow::CaptureAudio(IMMDevice *device, bool loopback)
     CoTaskMemFree(closest_supported);
 }
 
-void FlutterWindow::OnStreamListen(std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events)
+REFERENCE_TIME FlutterWindow::CalculateBufferDuration(int device_sample_rate, int target_blocksize)
 {
-  event_sink_ = std::move(events);
+
+  double duration_seconds = static_cast<double>(target_blocksize) / static_cast<double>(device_sample_rate);
+
+  // Convert to 100-nanosecond units (REFERENCE_TIME)
+  REFERENCE_TIME buffer_duration = static_cast<REFERENCE_TIME>(duration_seconds * 10000000.0);
+
+  // Ensure minimum buffer duration (Windows typically requires at least 3ms in exclusive mode, 10ms in shared mode)
+  REFERENCE_TIME min_duration = 30000; // 3ms in 100ns units
+  if (buffer_duration < min_duration)
+  {
+    buffer_duration = min_duration;
+  }
+
+  return buffer_duration;
 }
 
-void FlutterWindow::OnStreamCancel()
+// Ensure ring buffer capacity >= required_capacity
+void FlutterWindow::EnsureRingCapacity(size_t required_capacity)
 {
+  std::lock_guard<std::mutex> lock(ring_mutex_);
+  if (ring_capacity_ >= required_capacity)
+    return;
+  // grow to next power-of-two-ish or just the required * 2 size
+  size_t new_capacity = required_capacity * 2;
+  std::vector<float> new_buf(new_capacity);
+  // If there is existing data, copy it into new buffer starting at 0
+  size_t current_size = 0;
+  if (ring_capacity_ > 0)
+  {
+    if (ring_head_ >= ring_tail_)
+    {
+      current_size = ring_head_ - ring_tail_;
+      std::copy(audio_ring_buffer_.begin() + ring_tail_,
+                audio_ring_buffer_.begin() + ring_head_,
+                new_buf.begin());
+    }
+    else
+    {
+      // wrapped
+      current_size = ring_capacity_ - ring_tail_ + ring_head_;
+      size_t first_part = ring_capacity_ - ring_tail_;
+      std::copy(audio_ring_buffer_.begin() + ring_tail_,
+                audio_ring_buffer_.end(),
+                new_buf.begin());
+      std::copy(audio_ring_buffer_.begin(),
+                audio_ring_buffer_.begin() + ring_head_,
+                new_buf.begin() + first_part);
+    }
+  }
+  audio_ring_buffer_.swap(new_buf);
+  ring_capacity_ = new_capacity;
+  ring_tail_ = 0;
+  ring_head_ = current_size;
+}
+// push samples into ring buffer (samples vector is float samples interleaved)
+void FlutterWindow::RingBufferPush(const float *samples, size_t count)
+{
+  std::lock_guard<std::mutex> lock(ring_mutex_);
+  if (ring_capacity_ == 0)
+  {
+    // initial allocation: keep some headroom (e.g. 8 blocks)
+    size_t desired = std::max<size_t>(count * 8, count * 2);
+    audio_ring_buffer_.assign(desired, 0.0f);
+    ring_capacity_ = desired;
+    ring_head_ = 0;
+    ring_tail_ = 0;
+  }
+  // if not enough space, grow
+  size_t free_space = (ring_tail_ <= ring_head_) ? (ring_capacity_ - (ring_head_ - ring_tail_)) : (ring_tail_ - ring_head_);
+  if (free_space <= count)
+  {
+    // grow to fit
+    EnsureRingCapacity((ring_head_ >= ring_tail_ ? (ring_head_ - ring_tail_) : (ring_capacity_ - ring_tail_ + ring_head_)) + count);
+  }
 
-  event_sink_ = nullptr;
+  // write possibly in two parts
+  size_t first_write = std::min(count, ring_capacity_ - ring_head_);
+  std::copy(samples, samples + first_write, audio_ring_buffer_.begin() + ring_head_);
+  ring_head_ = (ring_head_ + first_write) % ring_capacity_;
+  size_t remaining = count - first_write;
+  if (remaining > 0)
+  {
+    std::copy(samples + first_write, samples + first_write + remaining, audio_ring_buffer_.begin() + ring_head_);
+    ring_head_ = (ring_head_ + remaining) % ring_capacity_;
+  }
+}
+// check how many floats currently stored
+size_t FlutterWindow::RingBufferSize()
+{
+  std::lock_guard<std::mutex> lock(ring_mutex_);
+  if (ring_capacity_ == 0)
+    return 0;
+  if (ring_head_ >= ring_tail_)
+    return ring_head_ - ring_tail_;
+  return ring_capacity_ - ring_tail_ + ring_head_;
+}
+// pop exactly 'count' floats (assumes count <= RingBufferSize()). Returned vector has length 'count'.
+std::vector<float> FlutterWindow::RingBufferPop(size_t count)
+{
+  std::lock_guard<std::mutex> lock(ring_mutex_);
+  std::vector<float> out;
+  out.resize(count);
+  if (count == 0)
+    return out;
+  size_t first_read = std::min(count, ring_capacity_ - ring_tail_);
+  std::copy(audio_ring_buffer_.begin() + ring_tail_, audio_ring_buffer_.begin() + ring_tail_ + first_read, out.begin());
+  ring_tail_ = (ring_tail_ + first_read) % ring_capacity_;
+  size_t remaining = count - first_read;
+  if (remaining > 0)
+  {
+    std::copy(audio_ring_buffer_.begin() + ring_tail_, audio_ring_buffer_.begin() + ring_tail_ + remaining, out.begin() + first_read);
+    ring_tail_ = (ring_tail_ + remaining) % ring_capacity_;
+  }
+  return out;
 }

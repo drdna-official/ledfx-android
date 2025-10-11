@@ -1,7 +1,10 @@
 import 'dart:async' show StreamSubscription, Timer;
+import 'dart:ffi';
 import 'dart:math' show max, min;
 
 import 'package:flutter/foundation.dart';
+import 'package:ledfx/aubio.dart';
+import 'package:ledfx/aubio_bindings.dart';
 import 'package:ledfx/src/platform/audio_bridge.dart';
 import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/effects/const.dart';
@@ -38,17 +41,17 @@ abstract class AudioInputSource {
   Timer? _timer;
   int _subscriberThreshould = 0;
 
-  late Cvec _freqDomainNull;
-  late Cvec _freqDomain;
-  Cvec get freqDomain => _freqDomain;
+  late Pointer<cvec_t> _freqDomainNull;
+  late Pointer<cvec_t> _freqDomain;
+  Pointer<cvec_t> get freqDomain => _freqDomain;
 
-  late Float32List _rawAudioSample;
-  late Float32List _processedAudioSample;
-  Float32List audioSample({bool raw = false}) {
+  late Float64List _rawAudioSample;
+  late Float64List _processedAudioSample;
+  Float64List audioSample({bool raw = false}) {
     return raw ? _rawAudioSample : _processedAudioSample;
   }
 
-  late double _volume;
+  double _volume = -90.0;
   final ExpFilter _volumeFilter = ExpFilter(
     val: -90.0,
     alphaDecay: 0.99,
@@ -58,7 +61,9 @@ abstract class AudioInputSource {
     return filtered ? _volumeFilter.value : _volume;
   }
 
-  late DigitalFilter preEmphasis;
+  late Pointer<aubio_filter_t> preEmphasis;
+  late Pointer<aubio_pvoc_t> phaseVocoder;
+  Pointer<aubio_resampler_t>? resampler;
   FixedSizeQueue? delayQueue;
 
   final List<double> _audioEventBuffer = [];
@@ -88,12 +93,13 @@ abstract class AudioInputSource {
           debugPrint(message);
           break;
 
-        case AudioEvent(:final Uint8List data):
+        case AudioEvent(:final Float64List data):
           // Convert and accumulate into frames
-          final frames = processAudioByteChunk(data);
-          for (final frame in frames) {
-            audioSampleCallback(frame);
-          }
+          // final frames = processAudioByteChunk(data);
+          // for (final frame in frames) {
+          //   audioSampleCallback(frame);
+          // }
+          audioSampleCallback(data);
           break;
         case DevicesInfoEvent(:final audioDevices):
           this.audioDevices = audioDevices;
@@ -105,20 +111,22 @@ abstract class AudioInputSource {
     _audio!.getDevices();
 
     // Setup a pre-emphasis filter to balance the input volume of lows to highs
-    preEmphasis = DigitalFilter(3);
+    preEmphasis = Aubio.digitalFilter(3);
     final selectedCoeff =
         ledfx.config.melbankConfig?.coeffType ?? CoeffType.mattmel;
     switch (selectedCoeff) {
       case CoeffType.mattmel:
-        preEmphasis.setBiquad(0, 0.8268, -1.6536, 0.8268, -1.6536, 0.6536);
+        preEmphasis.setBiquad(0.8268, -1.6536, 0.8268, -1.6536, 0.6536);
       // default:
       //   preEmphasis.setBiquad(0, 0.85870, -1.71740, 0.85870, -1.71605, 0.71874);
     }
-    _rawAudioSample = Float32List.fromList(
+    _rawAudioSample = Float64List.fromList(
       List.filled(MIC_RATE ~/ sampleRate, 0),
     );
 
-    _freqDomainNull = Cvec(fftSize);
+    phaseVocoder = Aubio.createPhaseVocoder(FFT_SIZE, MIC_RATE ~/ sampleRate);
+
+    _freqDomainNull = Aubio.createComplexVector(FFT_SIZE);
     _freqDomain = _freqDomainNull;
 
     final samplesToDelay = (0.001 * delay.inMilliseconds * sampleRate).toInt();
@@ -133,12 +141,18 @@ abstract class AudioInputSource {
     _streamSub?.cancel();
     _streamSub = null;
     _audioStreamActive = false;
+
+    // Clear Pointers
+    preEmphasis.delete();
+    phaseVocoder.delete();
+    if (resampler != null) resampler!.delete();
+    resampler = null;
+    _freqDomain.delete();
   }
 
   void queryDevices() {
     if (_audio == null) {
-      deactivate();
-      activate();
+      return;
     }
     _audio!.getDevices();
   }
@@ -148,13 +162,11 @@ abstract class AudioInputSource {
   }
 
   void startAudioCapture([int? deviceIndex]) {
+    if (_audio == null) return;
     if (deviceIndex != null) setActiveDevice(deviceIndex);
-
-    if (_audio == null) {
-      deactivate();
-      activate();
-    }
+    if (_audioStreamActive) _audio!.stop();
     if (audioDevices == null) queryDevices();
+
     if (audioDevices!.length > activeAudioDeviceIndex) {
       print(
         "starting audio capture with device -- ${audioDevices![activeAudioDeviceIndex].name}",
@@ -162,7 +174,11 @@ abstract class AudioInputSource {
       _audio!.start({
         "deviceId": audioDevices![activeAudioDeviceIndex].id,
         "captureType": "capture",
-        // "sampleRate": 30000,
+        "sampleRate": audioDevices![activeAudioDeviceIndex].defaultSampleRate,
+        "channels": 1,
+        "blockSize":
+            audioDevices![activeAudioDeviceIndex].defaultSampleRate ~/
+            sampleRate,
       });
       _audioStreamActive = true;
     }
@@ -171,14 +187,14 @@ abstract class AudioInputSource {
   void stopAudioCapture() {
     if (_audioStreamActive && _audio != null) {
       _audio!.stop();
-      deactivate();
+      _audioStreamActive = false;
     }
   }
 
   /// Convert PCM16 bytes → normalized float samples
-  Float32List pcm16ToFloat32(Uint8List bytes) {
+  Float64List pcm16ToFloat32(Uint8List bytes) {
     final bd = ByteData.sublistView(bytes);
-    final samples = Float32List(bytes.lengthInBytes ~/ 2);
+    final samples = Float64List(bytes.lengthInBytes ~/ 2);
     for (int i = 0; i < samples.length; i++) {
       samples[i] = bd.getInt16(i * 2, Endian.little) / 32768.0;
     }
@@ -186,40 +202,56 @@ abstract class AudioInputSource {
   }
 
   /// Process new PCM chunk into fixed frames
-  List<Float32List> processAudioByteChunk(Uint8List bytes) {
+  List<Float64List> processAudioByteChunk(Uint8List bytes) {
     final samples = pcm16ToFloat32(bytes);
     _audioEventBuffer.addAll(samples);
     final int frameSize = MIC_RATE ~/ sampleRate;
 
-    final frames = <Float32List>[];
+    final frames = <Float64List>[];
     while (_audioEventBuffer.length >= frameSize) {
-      frames.add(Float32List.fromList(_audioEventBuffer.sublist(0, frameSize)));
+      frames.add(Float64List.fromList(_audioEventBuffer.sublist(0, frameSize)));
       _audioEventBuffer.removeRange(0, frameSize);
     }
     return frames;
   }
 
-  void audioSampleCallback(Float32List frame) {
-    final int frameSize = MIC_RATE ~/ sampleRate;
+  int inLen = 0;
+  int outLen = 0;
 
-    if (frame.length != frameSize) {
+  void audioSampleCallback(Float64List inRaw) {
+    final int outLen = MIC_RATE ~/ sampleRate;
+    Float64List processed = Float64List(outLen);
+    if (inRaw.length != outLen) {
+      if (resampler == null || resampler == nullptr) {
+        resampler = Aubio.createResampler(
+          ResamplerType.SRC_SINC_FASTEST,
+          inRaw.length,
+          outLen,
+        );
+      }
+      processed = resampler!.process(inRaw, outLen);
+    } else {
+      processed = inRaw;
+    }
+
+    if (processed.length != outLen) {
       debugPrint("Discarding malformed audio frame");
       return;
     }
 
     if (delayQueue != null && delayQueue!.length > 0) {
       try {
-        final canput = delayQueue!.put(frame);
+        final canput = delayQueue!.put(processed);
         if (!canput) throw Error();
       } catch (e) {
         _rawAudioSample = delayQueue!.get();
-        delayQueue!.put(frame);
+        delayQueue!.put(processed);
         preProcessAudio();
         invalidateCaches();
         notifySubscribers();
       }
     } else {
-      _rawAudioSample = frame;
+      _rawAudioSample = processed;
       preProcessAudio();
       invalidateCaches();
       notifySubscribers();
@@ -271,19 +303,23 @@ abstract class AudioInputSource {
   // queried by an effect.
   void preProcessAudio() {
     //Calculate the current volume for silence detection
-    _volume = 1 + Energy.dbSpl(_rawAudioSample) / 100;
+    final db = Aubio.dbSPL(_rawAudioSample);
+
+    _volume = 1 + db / 100;
     _volume = max(0, min(1, _volume));
     _volumeFilter.update(_volume);
+
+    // print("db: $db, vol: ${_volumeFilter.value}");
 
     // Calculate the frequency domain from the filtered data and
     // force all zeros when below the volume threshold
     if ((_volumeFilter.value as double) > minVolume) {
       _processedAudioSample = _rawAudioSample;
       // pre-emphasis
-      _processedAudioSample = preEmphasis.processFrame(_rawAudioSample);
-
+      _processedAudioSample =
+          preEmphasis.processAudioFrame(_rawAudioSample) ?? _rawAudioSample;
       //Pass into the phase vocoder to get a windowed FFT
-      _freqDomain = dsp.pvoc(_processedAudioSample);
+      _freqDomain = phaseVocoder.analyse(_processedAudioSample);
     } else {
       _freqDomain = _freqDomainNull;
     }
@@ -341,6 +377,15 @@ class AudioAnalysisSource extends AudioInputSource {
     // subscribe(freqPower);
 
     _subscriberThreshould = _callbacks.length;
+  }
+
+  @override
+  void deactivate() {
+    super.deactivate();
+    // Clean Pointers
+    for (var m in melbanks.melbankProcessors) {
+      m.filterBank.delete();
+    }
   }
 
   void initialiseAnalysis() {

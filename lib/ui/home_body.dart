@@ -6,6 +6,9 @@ import 'package:ledfx/src/effects/effect.dart';
 import 'package:ledfx/src/effects/temporal.dart';
 import 'package:ledfx/src/effects/wavelength.dart';
 import 'package:ledfx/src/virtual.dart';
+import 'package:ledfx/visualizer/visualizer_painter.dart';
+
+final ValueNotifier<List<int>> rgb = ValueNotifier([]);
 
 class HomeBody extends StatefulWidget {
   final LEDFx ledfx;
@@ -59,6 +62,18 @@ class _HomeBodyState extends State<HomeBody> {
                 label: Text("Stop Audio Capture"),
               ),
             ],
+          ),
+          SizedBox(
+            height: 50,
+            child: ValueListenableBuilder(
+              valueListenable: rgb,
+              builder: (BuildContext context, List<int> value, Widget? child) {
+                return CustomPaint(
+                  painter: VisualizerPainter(rgb: value, ledCount: 300),
+                  size: const Size(double.infinity, 50),
+                );
+              },
+            ),
           ),
 
           ListView(

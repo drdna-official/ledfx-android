@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:ledfx/src/devices/device.dart';
+import 'package:ledfx/ui/home_body.dart';
 
 class DDPDevice extends UDPDevice {
   static const int VER1 = 0x01; // DDP Version 1
@@ -28,7 +29,7 @@ class DDPDevice extends UDPDevice {
   bool connectionWarning = false;
 
   @override
-  void flush(List<Float32List> data) {
+  void flush(List<Float64List> data) {
     frameCount += 1;
     try {
       if (socket == null) {
@@ -53,13 +54,13 @@ class DDPDevice extends UDPDevice {
   //   sock (RawDatagramSocket): The socket to send the packet over.
   //   dest (InternetAddress): The destination IP address.
   //   port (int): The destination port number.
-  //   data (List<Float32List>): The data to be sent in the packet.
+  //   data (List<Float64List>): The data to be sent in the packet.
   //   frame_count(int): The count of frames.
   static void sendOut({
     required RawDatagramSocket sock,
     required InternetAddress dest,
     required int port,
-    required List<Float32List> data,
+    required List<Float64List> data,
     required int frameCount,
   }) {
     final int sequence = frameCount % 15 + 1;
@@ -68,11 +69,13 @@ class DDPDevice extends UDPDevice {
     final Uint8List byteData = Uint8List(totalBytes);
     int byteIndex = 0;
 
-    for (final Float32List pixelRow in data) {
+    for (final Float64List pixelRow in data) {
       for (final double value in pixelRow) {
         byteData[byteIndex++] = value.toInt().clamp(0, 255);
       }
     }
+
+    rgb.value = byteData.toList();
 
     // 3. packets, remainder = divmod(len(byteData), DDPDevice.MAX_DATALEN)
     final int dataLength = byteData.length;

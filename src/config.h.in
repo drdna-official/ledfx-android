@@ -26,6 +26,11 @@
 /* Define if you have the <stdarg.h> header file. */
 #define HAVE_STDARG_H 1
 
+/* libsamplerate support */
+#ifdef HAVE_SAMPLERATE
+#define HAVE_SAMPLERATE 1
+#endif
+
 /* WAV file support */
 #cmakedefine HAVE_WAVREAD
 #cmakedefine HAVE_WAVWRITE

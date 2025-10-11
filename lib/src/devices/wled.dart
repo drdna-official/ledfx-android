@@ -31,7 +31,7 @@ class WLEDDevice extends NetworkedDevice {
   WLED? wled;
 
   @override
-  void flush(List<Float32List> data) {
+  void flush(List<Float64List> data) {
     subdevice?.flush(data);
   }
 

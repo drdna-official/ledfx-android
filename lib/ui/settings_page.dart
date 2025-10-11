@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:ledfx/src/platform/audio_bridge.dart';
@@ -113,7 +114,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // Process chunks
           VisualizerService.instance.processChunk(
             AudioVisualizerProcessor(bands: bands, cfg: cfg),
-            data,
+            Uint8List(5),
           );
           break;
         case DevicesInfoEvent(:final audioDevices):

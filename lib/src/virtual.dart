@@ -367,11 +367,11 @@ class Virtual {
   clearFrame() {}
   void reactivateEffect() {}
 
-  void flush([List<Float32List>? pixels]) {
+  void flush([List<Float64List>? pixels]) {
     pixels = pixels ?? _assembledFrame;
     if (pixels == null) return;
     segmentsByDevice.forEach((deviceID, segments) {
-      var data = <(List<Float32List>, int, int)>[];
+      var data = <(List<Float64List>, int, int)>[];
       final device = ledfx.devices.devices[deviceID];
 
       if (device != null && device.isActive) {
@@ -400,8 +400,8 @@ class Virtual {
 
   void renderCalibration() {}
 
-  List<Float32List>? _assembledFrame;
-  List<Float32List>? assembleFrame() {
+  List<Float64List>? _assembledFrame;
+  List<Float64List>? assembleFrame() {
     activeEffect?.render();
     final frame = activeEffect?.getPixels();
 
@@ -419,7 +419,7 @@ class Virtual {
     return null;
   }
 
-  void fireUpdateEvent([List<Float32List>? frame]) {
+  void fireUpdateEvent([List<Float64List>? frame]) {
     frame = frame ?? _assembledFrame;
     if (frame == null) return;
 
@@ -428,8 +428,8 @@ class Virtual {
     );
   }
 
-  List<Float32List> effectiveToPhysicalPixels(
-    List<Float32List> effectivePixels, [
+  List<Float64List> effectiveToPhysicalPixels(
+    List<Float64List> effectivePixels, [
     int? pixelCount,
   ]) {
     if (groupSize <= 1) return effectivePixels;

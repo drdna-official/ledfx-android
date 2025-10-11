@@ -68,7 +68,7 @@ class LEDFx {
       //TODO: implement virtuals
       final rows = 1;
 
-      List<Float32List> pixels = isDevice
+      List<Float64List> pixels = isDevice
           ? (event as DeviceUpdateEvent).pixels
           : (event as VirtualUpdateEvent).pixels;
       final pixelsLen = pixels.length;
@@ -104,7 +104,7 @@ class LEDFx {
         }
         pixels = List.generate(
           transposedAndCasted.length,
-          (i) => Float32List.fromList(transposedAndCasted[i]),
+          (i) => Float64List.fromList(transposedAndCasted[i]),
         );
       }
 

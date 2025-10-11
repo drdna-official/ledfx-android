@@ -11,7 +11,6 @@ import 'package:ledfx/src/effects/utils.dart';
 import 'package:ledfx/src/events.dart';
 import 'package:ledfx/src/virtual.dart';
 import 'package:ledfx/utils.dart';
-import 'package:n_dimensional_array/n_dimensional_array.dart';
 import 'package:nanoid/nanoid.dart';
 
 class DeviceConfig {
@@ -245,7 +244,7 @@ abstract class Device {
   bool _online = true;
   bool get isOnline => _online;
 
-  List<Float32List>? _pixels;
+  List<Float64List>? _pixels;
 
   List<Virtual>? _cachedVirtualsObjs;
   List<Virtual> get _virtualObjs => () {
@@ -271,7 +270,7 @@ abstract class Device {
   List<SegmentConfig> _segments = [];
 
   void activate() {
-    _pixels = List.filled(pixelCount, Float32List(3));
+    _pixels = List.filled(pixelCount, Float64List(3));
     _active = true;
   }
 
@@ -298,7 +297,7 @@ abstract class Device {
 
   ///Flushes the provided data to the device. This abstract method must be
   ///overwritten by the device implementation.
-  void flush(List<Float32List> data) {
+  void flush(List<Float64List> data) {
     return;
   }
 
@@ -350,7 +349,7 @@ abstract class Device {
 
   void updatePixels(
     String virtualID,
-    List<(List<Float32List>, int, int)> data,
+    List<(List<Float64List>, int, int)> data,
   ) {
     if (_active == false) {
       debugPrint("Can't update inactive device: $name");
@@ -358,51 +357,12 @@ abstract class Device {
     }
 
     for (final (pixels, start, end) in data) {
-      final int sliceLength = end - start + 1;
-
-      // --- 1. if pixels.shape[0] != 0: ---
-      if (pixels.isNotEmpty && _pixels != null) {
-        // --- Get the shape/length of the input 'pixels' ---
-        final int inputLength = pixels.length;
-
-        // Assume inner lists (colors) have length 3 (R, G, B)
-        final bool isSingleColor = inputLength == 1 && pixels.first.length == 3;
-
-        // The shape check needs to be done carefully:
-
-        // --- 2. if np.shape(pixels) == (3,) ---
-        // This case means 'pixels' is a single 3-element color array, which should be tiled.
-        // Since our Dart structure is List<Float32List>, a single color is a List of length 1,
-        // containing a Float32List of length 3.
-        if (isSingleColor) {
-          // The original code implies that if pixels is a single color,
-          // it should be assigned to the *entire slice*, effectively tiling it.
-          final Float32List singleColor = pixels.first;
-
-          for (int i = start; i <= end; i++) {
-            // Perform the assignment (copying the 3 elements)
-            if (i < _pixels!.length) {
-              _pixels![i].setAll(0, singleColor);
-            }
-          }
-          return;
-        }
-        // --- 3. OR np.shape(self._pixels[start : end + 1]) == np.shape(pixels) ---
-        // Check if the input array (pixels) has the same number of rows as the slice (sliceLength).
-        else if (inputLength == sliceLength) {
-          // The number of pixels matches, perform slice assignment.
-          // Python: self._pixels[start : end + 1] = pixels
-
-          for (int i = 0; i < sliceLength; i++) {
-            final int targetIndex = start + i;
-
-            if (targetIndex < _pixels!.length) {
-              // Check if the inner size (color length) also matches before assignment
-              if (_pixels![targetIndex].length == pixels[i].length) {
-                // In-place assignment: overwrite the contents of the target list
-                _pixels![targetIndex].setAll(0, pixels[i]);
-              }
-            }
+      if (pixels.isNotEmpty && _pixels != null && _pixels!.isNotEmpty) {
+        if (pixels[0].length == 3 ||
+            ((pixels.length < end && _pixels!.length < end) &&
+                pixels[start].length == _pixels![start].length)) {
+          for (int i = start; i < end + 1; i++) {
+            _pixels![i] = pixels[i];
           }
         }
       }
@@ -423,15 +383,14 @@ abstract class Device {
         final frame = assembleFrame();
         if (frame == null) return;
         flush(frame);
-        print("flushing Device");
         ledfx.events.fireEvent(DeviceUpdateEvent(id, frame));
       }
     }
   }
 
-  List<Float32List>? assembleFrame() {
+  List<Float64List>? assembleFrame() {
     if (_pixels == null) return null;
-    List<Float32List> frame = _pixels!;
+    List<Float64List> frame = _pixels!;
     if (centerOffset > 0) frame = rollList(frame, centerOffset);
     return frame;
   }
@@ -497,7 +456,7 @@ abstract class Device {
       } else {
         if (_pixels != null && ledfx.config.flushOnDeactivate) {
           for (int i = segment.start; i <= segment.end; i++) {
-            final Float32List zeroRow = Float32List(3);
+            final Float64List zeroRow = Float64List(3);
             _pixels![i] = zeroRow;
           }
         }
@@ -612,7 +571,7 @@ class RealtimeUDPDevice extends UDPDevice {
     required super.config,
   }) : lastFrame = List.filled(
          config.pixelCount,
-         Float32List.fromList(List.filled(3, -1)),
+         Float64List.fromList(List.filled(3, -1)),
        ),
        lastFrameSendTime = DateTime.now().millisecondsSinceEpoch,
        deviceType = "UDP Device";
@@ -622,11 +581,11 @@ class RealtimeUDPDevice extends UDPDevice {
   int timeout;
   bool minimizeTraffic;
 
-  late List<Float32List> lastFrame;
+  late List<Float64List> lastFrame;
   late int lastFrameSendTime;
 
   @override
-  void flush(List<Float32List> data) {
+  void flush(List<Float64List> data) {
     try {
       chooseAndSend(data);
       lastFrame = data;
@@ -636,7 +595,7 @@ class RealtimeUDPDevice extends UDPDevice {
     }
   }
 
-  List<Uint8List> clampToByte(List<Float32List> data) {
+  List<Uint8List> clampToByte(List<Float64List> data) {
     return data
         .map(
           (e) => Uint8List.fromList(
@@ -646,7 +605,7 @@ class RealtimeUDPDevice extends UDPDevice {
         .toList();
   }
 
-  void chooseAndSend(List<Float32List> floatData) {
+  void chooseAndSend(List<Float64List> floatData) {
     final int frameSize = floatData.length;
     final bool frameIsSame = minimizeTraffic && floatData == lastFrame;
 

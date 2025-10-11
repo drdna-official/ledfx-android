@@ -66,7 +66,7 @@ List<T> rollList<T>(List<T> list, int offset) {
   return rolled;
 }
 
-// T is used to represent the inner type (Float32List or List<double>)
+// T is used to represent the inner type (Float64List or List<double>)
 List<T> getSlice<T>(List<T> data, int start, int stop, int step) {
   if (step == 0) {
     throw ArgumentError('Step cannot be zero.');
@@ -171,8 +171,8 @@ List<double> interp(List<double> x, List<double> xp, List<double> fp) {
   return result;
 }
 
-List<Float32List> repeatAndTruncatePixels(
-  List<Float32List> effectivePixels,
+List<Float64List> repeatAndTruncatePixels(
+  List<Float64List> effectivePixels,
   int groupSize,
   int pixelCount,
 ) {
@@ -181,15 +181,15 @@ List<Float32List> repeatAndTruncatePixels(
   }
 
   // 1. Repetition (Equivalent to np.repeat(..., axis=0))
-  List<Float32List> repeatedPixels = [];
+  List<Float64List> repeatedPixels = [];
 
   // Iterate through each row in the original array
-  for (final Float32List row in effectivePixels) {
+  for (final Float64List row in effectivePixels) {
     // Repeat the current row 'groupSize' times
     for (int i = 0; i < groupSize; i++) {
       // Add a reference to the row.
       // NOTE: This creates a shallow copy (a new list of references
-      // to the same Float32List objects), which matches NumPy's behavior
+      // to the same Float64List objects), which matches NumPy's behavior
       // after a repeat operation if the result isn't explicitly copied/modified.
       repeatedPixels.add(row);
     }
@@ -352,14 +352,14 @@ class FixedSizeQueue<T> {
 ///   value (double between 0 and 1): The value.
 ///
 /// Returns:
-///   List<Float32List>: An array of RGB values where each RGB value is in the range 0 to 255.
-List<Float32List> hsvToRgb(List<double> hues, double saturation, double value) {
+///   List<Float64List>: An array of RGB values where each RGB value is in the range 0 to 255.
+List<Float64List> hsvToRgb(List<double> hues, double saturation, double value) {
   if (hues.isEmpty) {
     return [];
   }
 
   int pixelCount = hues.length;
-  List<Float32List> rgbArray = List.generate(pixelCount, (_) => Float32List(3));
+  List<Float64List> rgbArray = List.generate(pixelCount, (_) => Float64List(3));
 
   // The six possible values for R, G, B channels based on intermediate calculation
   final double p = value * (1.0 - saturation);
@@ -458,8 +458,8 @@ List<Float32List> hsvToRgb(List<double> hues, double saturation, double value) {
   return rgbArray;
 }
 
-List<Float32List> fillRainbow(
-  List<Float32List> pixels,
+List<Float64List> fillRainbow(
+  List<Float64List> pixels,
   double initialHue,
   double deltaHue,
 ) {
@@ -482,7 +482,7 @@ List<Float32List> fillRainbow(
   }
 
   // --- Convert to RGB ---
-  // The hsvToRgb function is expected to return the final List<Float32List>
+  // The hsvToRgb function is expected to return the final List<Float64List>
   // with dimensions [pixelCount, 3].
   return hsvToRgb(hues, sat, val);
 }
