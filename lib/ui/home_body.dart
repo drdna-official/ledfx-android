@@ -3,12 +3,18 @@ import 'package:ledfx/src/core.dart';
 import 'package:ledfx/src/devices/device.dart';
 import 'package:ledfx/src/effects/audio.dart';
 import 'package:ledfx/src/effects/effect.dart';
-import 'package:ledfx/src/effects/temporal.dart';
 import 'package:ledfx/src/effects/wavelength.dart';
 import 'package:ledfx/src/virtual.dart';
 import 'package:ledfx/visualizer/visualizer_painter.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 final ValueNotifier<List<int>> rgb = ValueNotifier([]);
+
+Future<bool> requestNotificationPermission() async {
+  if (await Permission.notification.isGranted) return true;
+  final status = await Permission.notification.request();
+  return status.isGranted;
+}
 
 class HomeBody extends StatefulWidget {
   final LEDFx ledfx;
@@ -49,6 +55,25 @@ class _HomeBodyState extends State<HomeBody> {
                 },
                 label: Text("Refresh"),
               ),
+            ],
+          ),
+          Row(
+            children: [
+              Text("Current Selected Device"),
+              if (widget.ledfx.audio?.audioDevices != null &&
+                  widget.ledfx.audio!.audioDevices!.isNotEmpty)
+                Text(
+                  widget
+                      .ledfx
+                      .audio!
+                      .audioDevices![widget.ledfx.audio!.activeAudioDeviceIndex]
+                      .name,
+                ),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
               ElevatedButton.icon(
                 onPressed: () {
                   widget.ledfx.audio!.startAudioCapture();

@@ -29,8 +29,8 @@ object RecordingBridge {
 
     // ===== Helpers to send events back to Flutter =====
 
-    fun sendAudio(bytes: ByteArray) {
-        eventSink?.success(mapOf("type" to "audio", "data" to bytes))
+    fun sendAudio(doubles: List<Double>) {
+        eventSink?.success(mapOf("type" to "audio", "data" to doubles))
     }
 
     fun sendState(state: String) {

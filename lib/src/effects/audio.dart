@@ -161,26 +161,30 @@ abstract class AudioInputSource {
     activeAudioDeviceIndex = index;
   }
 
-  void startAudioCapture([int? deviceIndex]) {
+  Future<void> startAudioCapture([int? deviceIndex]) async {
     if (_audio == null) return;
-    if (deviceIndex != null) setActiveDevice(deviceIndex);
-    if (_audioStreamActive) _audio!.stop();
+    if (_audioStreamActive) return;
     if (audioDevices == null) queryDevices();
+    if (deviceIndex != null) setActiveDevice(deviceIndex);
 
     if (audioDevices!.length > activeAudioDeviceIndex) {
       print(
         "starting audio capture with device -- ${audioDevices![activeAudioDeviceIndex].name}",
       );
-      _audio!.start({
+      final success = await _audio!.start({
         "deviceId": audioDevices![activeAudioDeviceIndex].id,
-        "captureType": "capture",
+        "captureType":
+            audioDevices![activeAudioDeviceIndex].type == AudioDeviceType.input
+            ? "capture"
+            : "loopback",
         "sampleRate": audioDevices![activeAudioDeviceIndex].defaultSampleRate,
         "channels": 1,
         "blockSize":
             audioDevices![activeAudioDeviceIndex].defaultSampleRate ~/
             sampleRate,
       });
-      _audioStreamActive = true;
+      if (success ?? false) _audioStreamActive = true;
+      return;
     }
   }
 

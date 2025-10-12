@@ -16,17 +16,18 @@ class RecordingService : Service(), CoroutineScope by MainScope() {
     private var audioRecord: AudioRecord? = null
     private var mediaProjection: MediaProjection? = null
     private var captureJob: Job? = null
-    private var isPaused = false
 
     companion object {
-        var isRunning = false
+        var isRecording = false
         const val ACTION_START = "in.drdna.ledfx.ACTION_START"
         const val ACTION_STOP = "in.drdna.ledfx.ACTION_STOP"
-        const val ACTION_PAUSE = "in.drdna.ledfx.ACTION_PAUSE"
-        const val ACTION_RESUME = "in.drdna.ledfx.ACTION_RESUME"
         const val ACTION_UPDATE_NOTIFICATION = "in.drdna.ledfx.ACTION_UPDATE_NOTIFICATION"
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val EXTRA_CAPTURE_TYPE = "extra_capture_type" // capture or loopback
+        const val EXTRA_CHANNELS = "extra_channels" // 1 or 2
+        const val EXTRA_SAMPLE_RATE = "extra_sample_rate" // 44100, 48000 etc
+        const val EXTRA_BLOCK_SIZE = "extra_block_size" // number of samples to send per event
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -34,6 +35,10 @@ class RecordingService : Service(), CoroutineScope by MainScope() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                val captureType = intent.getStringExtra(EXTRA_CAPTURE_TYPE) ?: "loopback"
+                val channels = intent.getIntExtra(EXTRA_CHANNELS, 2)
+                val sampleRate = intent.getIntExtra(EXTRA_SAMPLE_RATE, 44100)
+                val blockSize = intent.getIntExtra(EXTRA_BLOCK_SIZE, 1024)
                 val rc = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data =
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -48,17 +53,19 @@ class RecordingService : Service(), CoroutineScope by MainScope() {
                         NotificationHelper.buildNotification(
                                 this,
                                 isRecording = true,
-                                isPaused = false
                         )
                 )
-                isRunning = true
-                startCaptureSafely(rc, data)
+                isRecording = true
+                if (captureType == "loopback") {
+                    startLoopbackRecording(rc, data, channels, sampleRate, blockSize)
+                } else {
+                    startMicRecording(channels, sampleRate, blockSize)
+                }
                 RecordingBridge.sendState("recordingStarted")
-
             }
             ACTION_STOP -> {
                 stopCapture()
-                isRunning = false
+                isRecording = false
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     stopForeground(Service.STOP_FOREGROUND_REMOVE)
                 } else {
@@ -66,123 +73,127 @@ class RecordingService : Service(), CoroutineScope by MainScope() {
                 }
                 stopSelf()
                 RecordingBridge.sendState("recordingStopped")
-
-            }
-            ACTION_PAUSE -> {
-                isPaused = true
-                NotificationHelper.updateNotification(this, isRecording = false, isPaused = true)
-                RecordingBridge.sendState("recordingPaused")
-
-            }
-            ACTION_RESUME -> {
-                isPaused = false
-                NotificationHelper.updateNotification(this, isRecording = true, isPaused = false)
-                RecordingBridge.sendState("recordingResumed")
             }
             ACTION_UPDATE_NOTIFICATION -> {
                 NotificationHelper.updateNotification(
                         this,
-                        isRecording = !isPaused,
-                        isPaused = isPaused
+                        isRecording = isRecording,
                 )
             }
         }
         return START_STICKY
     }
 
-    private fun startCaptureSafely(resultCode: Int, resultData: Intent?) {
+    private fun startLoopbackRecording(
+            resultCode: Int,
+            resultData: Intent?,
+            numChannels: Int,
+            sampleRate: Int,
+            blockSize: Int
+    ) {
+        if (captureJob?.isActive == true) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             Log.e(TAG, "AudioPlaybackCapture requires Android Q+")
             RecordingBridge.sendError("not_supported")
             return
         }
+
         if (resultData == null) {
             Log.e(TAG, "No MediaProjection permission data supplied")
             RecordingBridge.sendError("permission_denied")
             return
         }
+
         try {
             val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpm.getMediaProjection(resultCode, resultData)
-            startCaptureLoop()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start projection: ${e.message}")
             RecordingBridge.sendError("projection_failed")
         }
-    }
 
-    private fun startCaptureLoop() {
-        if (captureJob?.isActive == true) return
-
-        val sampleRate = 44100
-        val channelMask = AudioFormat.CHANNEL_IN_STEREO
-        val audioFormat =
-                AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(channelMask)
-                        .build()
-
-        val config =
-                AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
-                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                        .addMatchingUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
-                        .build()
-
-        val minBuf =
-                AudioRecord.getMinBufferSize(
-                                sampleRate,
-                                channelMask,
-                                AudioFormat.ENCODING_PCM_16BIT
-                        )
-                        .coerceAtLeast(8192)
-
-        audioRecord =
-                AudioRecord.Builder()
-                        .setAudioFormat(audioFormat)
-                        .setBufferSizeInBytes(minBuf)
-                        .setAudioPlaybackCaptureConfig(config)
-                        .build()
-
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            RecordingBridge.sendError("audio_init_failed")
-            Log.e(TAG, "AudioRecord not initialized")
-            return
-        }
-
+        isRecording = true
         captureJob =
                 launch(Dispatchers.IO) {
                     try {
-                        try {
-                            audioRecord?.startRecording()
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                RecordingBridge.sendError("record_start_failed")
-                            }
+                        val config =
+                                AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
+                                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                                        .build()
+
+                        val channelMask =
+                                if (numChannels == 2) AudioFormat.CHANNEL_IN_STEREO
+                                else AudioFormat.CHANNEL_IN_MONO
+
+                        val audioFormat =
+                                AudioFormat.Builder()
+                                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                                        .setSampleRate(sampleRate)
+                                        .setChannelMask(channelMask)
+                                        .build()
+
+                        val minBuf =
+                                AudioRecord.getMinBufferSize(
+                                                sampleRate,
+                                                channelMask,
+                                                AudioFormat.ENCODING_PCM_FLOAT
+                                        )
+                                        .coerceAtLeast(blockSize * numChannels * 4)
+
+                        audioRecord =
+                                AudioRecord.Builder()
+                                        .setAudioPlaybackCaptureConfig(config)
+                                        .setAudioFormat(audioFormat)
+                                        .setBufferSizeInBytes(minBuf)
+                                        .build()
+
+                        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                            RecordingBridge.sendError("audio_init_failed")
+                            Log.e(TAG, "Loopback AudioRecord init failed")
                             return@launch
                         }
 
-                        val buffer = ByteArray(minBuf)
-                        while (isActive) {
-                            if (isPaused) {
-                                delay(50)
-                                continue
-                            }
-                            val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
-                            if (read > 0) {
-                                val copy = buffer.copyOf(read)
-                                withContext(Dispatchers.Main) {
-                                    RecordingBridge.sendAudio(copy)
+                        audioRecord!!.startRecording()
+                        Log.i(TAG, "Loopback recording started")
+
+                        val accumulator = ArrayDeque<Double>()
+                        val tempBuffer = FloatArray(blockSize * numChannels)
+
+                        while (isRecording && isActive) {
+                            val readCount =
+                                    audioRecord!!.read(
+                                            tempBuffer,
+                                            0,
+                                            tempBuffer.size,
+                                            AudioRecord.READ_BLOCKING
+                                    )
+                            if (readCount > 0) {
+                                if (numChannels == 2) {
+                                    for (i in 0 until readCount step 2) {
+                                        val mono =
+                                                ((tempBuffer[i] + tempBuffer[i + 1]) * 0.5)
+                                                        .toDouble()
+                                        accumulator.add(mono)
+                                    }
+                                } else {
+                                    for (i in 0 until readCount) {
+                                        accumulator.add(tempBuffer[i].toDouble())
+                                    }
                                 }
-                            } else {
-                                delay(5)
+
+                                while (accumulator.size >= blockSize) {
+                                    val out = ArrayList<Double>(blockSize)
+                                    repeat(blockSize) { out.add(accumulator.removeFirst()) }
+
+                                    withContext(Dispatchers.Main) { RecordingBridge.sendAudio(out) }
+                                }
                             }
                         }
-                    } catch (ex: Exception) {
-                        Log.e(TAG, "Capture loop error: ${ex.localizedMessage}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Loopback error: ${e.message}", e)
                         withContext(Dispatchers.Main) {
-                            RecordingBridge.sendError("capture_failed")
+                            RecordingBridge.sendError("loopback_failed")
                         }
                     } finally {
                         try {
@@ -195,7 +206,97 @@ class RecordingService : Service(), CoroutineScope by MainScope() {
                 }
     }
 
+    private fun startMicRecording(numChannels: Int, sampleRate: Int, blockSize: Int) {
+        if (captureJob?.isActive == true) return
+
+        captureJob =
+                launch(Dispatchers.IO) {
+                    try {
+                        val channelMask =
+                                if (numChannels == 2) AudioFormat.CHANNEL_IN_STEREO
+                                else AudioFormat.CHANNEL_IN_MONO
+
+                        val audioFormat =
+                                AudioFormat.Builder()
+                                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                                        .setSampleRate(sampleRate)
+                                        .setChannelMask(channelMask)
+                                        .build()
+
+                        val minBuf =
+                                AudioRecord.getMinBufferSize(
+                                                sampleRate,
+                                                channelMask,
+                                                AudioFormat.ENCODING_PCM_FLOAT
+                                        )
+                                        .coerceAtLeast(blockSize * numChannels * 4)
+
+                        audioRecord =
+                                AudioRecord.Builder()
+                                        .setAudioSource(MediaRecorder.AudioSource.MIC)
+                                        .setAudioFormat(audioFormat)
+                                        .setBufferSizeInBytes(minBuf)
+                                        .build()
+
+                        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                            RecordingBridge.sendError("audio_init_failed")
+                            Log.e(TAG, "Mic AudioRecord init failed")
+                            return@launch
+                        }
+
+                        audioRecord!!.startRecording()
+                        Log.i(TAG, "Mic recording started")
+
+                        val accumulator = ArrayDeque<Double>()
+                        val tempBuffer = FloatArray(blockSize * numChannels)
+
+                        while (isRecording && isActive) {
+                            val readCount =
+                                    audioRecord!!.read(
+                                            tempBuffer,
+                                            0,
+                                            tempBuffer.size,
+                                            AudioRecord.READ_BLOCKING
+                                    )
+                            if (readCount > 0) {
+                                if (numChannels == 2) {
+                                    for (i in 0 until readCount step 2) {
+                                        val mono =
+                                                ((tempBuffer[i] + tempBuffer[i + 1]) * 0.5)
+                                                        .toDouble()
+                                        accumulator.add(mono)
+                                    }
+                                } else {
+                                    for (i in 0 until readCount) {
+                                        accumulator.add(tempBuffer[i].toDouble())
+                                    }
+                                }
+
+                                while (accumulator.size >= blockSize) {
+                                    val out = ArrayList<Double>(blockSize)
+                                    repeat(blockSize) { out.add(accumulator.removeFirst()) }
+
+                                    withContext(Dispatchers.Main) { RecordingBridge.sendAudio(out) }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Mic error: ${e.message}", e)
+                        withContext(Dispatchers.Main) { RecordingBridge.sendError("mic_failed") }
+                    } finally {
+                        try {
+                            audioRecord?.stop()
+                        } catch (_: Throwable) {}
+                        try {
+                            audioRecord?.release()
+                        } catch (_: Throwable) {}
+                    }
+                }
+    }
+
     private fun stopCapture() {
+        isRecording = false
+
         captureJob?.cancel()
         captureJob = null
         try {

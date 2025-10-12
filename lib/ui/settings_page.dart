@@ -149,7 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final ok = await AudioBridge.instance.requestProjection();
     if (!ok) return;
 
-    final started = await AudioBridge.instance.start();
+    final started = await AudioBridge.instance.start({});
     if (started == null || !started) return;
   }
 

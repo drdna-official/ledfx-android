@@ -56,11 +56,20 @@ class MainActivity : FlutterFragmentActivity() {
                     projectionLauncher.launch(intent)
                 }
                 "startRecording" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val captureType = (args?.get("captureType") as? String) ?: "loopback"
+                    val channel = (args?.get("channel") as? Int) ?: 2
+                    val sampleRate = (args?.get("sampleRate") as? Int) ?: 48000
+                    val blockSize = (args?.get("blockSize") as? Int) ?: 1024
                     if (lastResultData != null) {
                         val svc = Intent(this, RecordingService::class.java).apply {
                             action = RecordingService.ACTION_START
                             putExtra(RecordingService.EXTRA_RESULT_CODE, lastResultCode)
                             putExtra(RecordingService.EXTRA_RESULT_DATA, lastResultData)
+                            putExtra(RecordingService.EXTRA_CAPTURE_TYPE, captureType)
+                            putExtra(RecordingService.EXTRA_CHANNELS, channel)
+                            putExtra(RecordingService.EXTRA_SAMPLE_RATE, sampleRate)
+                            putExtra(RecordingService.EXTRA_BLOCK_SIZE, blockSize)
                         }
                         startForegroundService(svc)
                         result.success(true)
@@ -71,20 +80,6 @@ class MainActivity : FlutterFragmentActivity() {
                 "stopRecording" -> {
                     val svc = Intent(this, RecordingService::class.java).apply {
                         action = RecordingService.ACTION_STOP
-                    }
-                    startService(svc)
-                    result.success(null)
-                }
-                "pauseRecording" -> {
-                    val svc = Intent(this, RecordingService::class.java).apply {
-                        action = RecordingService.ACTION_PAUSE
-                    }
-                    startService(svc)
-                    result.success(null)
-                }
-                "resumeRecording" -> {
-                    val svc = Intent(this, RecordingService::class.java).apply {
-                        action = RecordingService.ACTION_RESUME
                     }
                     startService(svc)
                     result.success(null)

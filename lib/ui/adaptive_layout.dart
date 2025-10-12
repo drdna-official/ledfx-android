@@ -152,9 +152,8 @@ class ExpandedLayout extends StatelessWidget {
     return Row(
       children: [
         // Permanent Navigation Sidebar (Wider, custom widget)
-        Container(
+        SizedBox(
           width: 250, // Dedicated wider space for the sidebar
-          color: Colors.green[50],
           child: ListView(
             padding: EdgeInsets.zero,
             children: const [

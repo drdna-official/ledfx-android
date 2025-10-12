@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Sealed union of all events from the native bridge
 sealed class RecordingEvent {
@@ -121,11 +123,65 @@ class AudioBridge {
   }
 
   // Convenience methods for native calls
-  Future<bool?> getDevices() async =>
-      await _method.invokeMethod<bool?>('requestDeviceList');
-  Future<bool?> start([Map<String, dynamic>? args]) async =>
-      await _method.invokeMethod<bool?>('startRecording', args);
+  Future<bool?> getDevices() async {
+    if (Platform.isAndroid) {
+      _controller.add(
+        DevicesInfoEvent([
+          {
+            "id": "1",
+            "name": "System Internal",
+            "description": "System Internal",
+            "isActive": true,
+            "samplerate": 48000,
+            "type": "output",
+          },
+          {
+            "id": "2",
+            "name": "Microphone",
+            "description": "Microphone",
+            "isActive": true,
+            "samplerate": 48000,
+            "type": "input",
+          },
+        ]),
+      );
+      return true;
+    } else {
+      return await _method.invokeMethod<bool?>('requestDeviceList');
+    }
+  }
+
+  Future<bool?> start(Map<String, dynamic> args) async {
+    if (Platform.isAndroid) {
+      final success = await androidPermissions(
+        args["captureType"] == "loopback",
+      );
+      if (success) {
+        return await _method.invokeMethod<bool?>('startRecording', args);
+      } else {
+        return false;
+      }
+    } else {
+      return await _method.invokeMethod<bool?>('startRecording', args);
+    }
+  }
+
   Future<bool?> stop() async => await _method.invokeMethod('stopRecording');
   Future<bool?> pause() async => await _method.invokeMethod('pauseRecording');
   Future<bool?> resume() async => await _method.invokeMethod('resumeRecording');
+
+  Future<bool> androidPermissions(bool requireMediaProjection) async {
+    final p = await Permission.microphone.request();
+    if (!p.isGranted) return false;
+
+    final notif = await Permission.notification.request();
+    if (!notif.isGranted) return false;
+
+    if (requireMediaProjection) {
+      final ok = await requestProjection();
+      if (!ok) return false;
+    }
+
+    return true;
+  }
 }
