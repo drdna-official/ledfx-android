@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'package:ledfx/src/devices/ddp.dart';
 import 'package:ledfx/src/devices/device.dart';
 import 'package:http/http.dart' as http;
+import 'package:ledfx/src/devices/udp.dart';
 import 'package:nanoid/nanoid.dart';
 
 enum WLEDSyncMode { udp, ddp, e131 }
@@ -115,6 +116,7 @@ class WLED {
 
   Future<Map<String, dynamic>?> _requestGET(String endpoint) async {
     try {
+      print("requesting config at http://$ipAddr/$endpoint");
       final response = await http.get(Uri.parse("http://$ipAddr/$endpoint"));
       // final response = await http.get(Uri.parse("http://192.168.0.150"));
       if (response.statusCode == 200) {

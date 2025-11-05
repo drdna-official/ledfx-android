@@ -486,3 +486,184 @@ List<Float64List> fillRainbow(
   // with dimensions [pixelCount, 3].
   return hsvToRgb(hues, sat, val);
 }
+
+// Simplified Polynomial class for the required functionality for kernel
+class Polynomial {
+  // Coefficients: [a0, a1, a2, ...] where P(x) = a0 + a1*x + a2*x^2 + ...
+  final List<double> coeffs;
+
+  const Polynomial(this.coeffs);
+
+  // Evaluates the polynomial at a single point x
+  double callSingle(double x) {
+    double result = 0.0;
+    double xPower = 1.0;
+    for (int i = 0; i < coeffs.length; i++) {
+      result += coeffs[i] * xPower;
+      xPower *= x;
+    }
+    return result;
+  }
+
+  // Evaluates the polynomial over a list of x values (vectorized call)
+  List<double> call(List<double> x) {
+    return x.map(callSingle).toList();
+  }
+
+  // Derivative: P'(x)
+  Polynomial deriv() {
+    if (coeffs.length <= 1) {
+      return const Polynomial([0.0]); // Derivative of a constant is 0
+    }
+    final List<double> newCoeffs = [];
+    for (int i = 1; i < coeffs.length; i++) {
+      newCoeffs.add(coeffs[i] * i.toDouble());
+    }
+    return Polynomial(newCoeffs);
+  }
+
+  // Addition of two polynomials: (P + Q)(x)
+  Polynomial operator +(Polynomial other) {
+    final int len = max(coeffs.length, other.coeffs.length);
+    final List<double> newCoeffs = List<double>.filled(len, 0.0);
+
+    for (int i = 0; i < len; i++) {
+      final double c1 = i < coeffs.length ? coeffs[i] : 0.0;
+      final double c2 = i < other.coeffs.length ? other.coeffs[i] : 0.0;
+      newCoeffs[i] = c1 + c2;
+    }
+    return Polynomial(newCoeffs);
+  }
+
+  // Multiplication of two polynomials: (P * Q)(x)
+  Polynomial operator *(Polynomial other) {
+    if (coeffs.isEmpty || other.coeffs.isEmpty) {
+      return const Polynomial([0.0]);
+    }
+    final int newLength = coeffs.length + other.coeffs.length - 1;
+    final List<double> newCoeffs = List<double>.filled(newLength, 0.0);
+
+    for (int i = 0; i < coeffs.length; i++) {
+      for (int j = 0; j < other.coeffs.length; j++) {
+        newCoeffs[i + j] += coeffs[i] * other.coeffs[j];
+      }
+    }
+    return Polynomial(newCoeffs);
+  }
+}
+
+/// Produces a 1D Gaussian or Gaussian-derivative filter kernel.
+///
+/// Args:
+///   sigma (double): The standard deviation of the filter.
+///   order (int): The derivative-order (0 for Gaussian, 1 for 1st order derivative, etc.).
+///   arrayLen (int): The length of the array the kernel will be applied to.
+///
+/// Returns:
+///   List<double> containing the filter kernel.
+List<double> gaussianKernel1d(double sigma, int order, int arrayLen) {
+  if (order < 0) {
+    throw ArgumentError("Order must be non-negative");
+  }
+
+  // Trapping small sigma and calculating radius
+  sigma = max(0.00001, sigma);
+
+  // radius = max(1, int(round(4.0 * sigma)))
+  int radius = max(1, (4.0 * sigma).round());
+
+  // radius = min(int((array_len - 1) / 2), radius)
+  radius = min(((arrayLen - 1) / 2).toInt(), radius);
+
+  // radius = max(radius, 1)
+  radius = max(radius, 1);
+
+  // Error check (Radius will always be positive integer here)
+  // if (!radius.isInteger || radius <= 0) { ... }
+
+  // p = np.polynomial.Polynomial([0, 0, -0.5 / (sigma * sigma)])
+  final double sigmaSq = sigma * sigma;
+  final Polynomial p = Polynomial([0.0, 0.0, -0.5 / sigmaSq]);
+
+  // x = np.arange(-radius, radius + 1)
+  final kernelLen = 2 * radius + 1;
+  final List<double> x = List.generate(
+    kernelLen,
+    (i) => (i - radius).toDouble(),
+  );
+
+  // phi_x = np.exp(p(x), dtype=np.double)
+  final List<double> p_x = p.call(x);
+  final List<double> phi_x = p_x.map((val) => exp(val)).toList();
+
+  // phi_x /= phi_x.sum()
+  final double sumPhiX = phi_x.reduce((a, b) => a + b);
+  if (sumPhiX == 0.0) {
+    // Handle case where sum is zero (shouldn't happen with Gaussian)
+    throw StateError("Normalization sum is zero.");
+  }
+  for (int i = 0; i < phi_x.length; i++) {
+    phi_x[i] /= sumPhiX;
+  }
+
+  if (order > 0) {
+    // q = np.polynomial.Polynomial([1])
+    Polynomial q = const Polynomial([1.0]);
+
+    // p_deriv = p.deriv()
+    final Polynomial pDeriv = p.deriv();
+
+    for (int i = 0; i < order; i++) {
+      // q = q.deriv() + q * p_deriv
+      final Polynomial qDeriv = q.deriv();
+      final Polynomial qTimesPDeriv = q * pDeriv;
+      q = qDeriv + qTimesPDeriv;
+    }
+
+    // phi_x *= q(x)
+    final List<double> qX = q.call(x);
+    for (int i = 0; i < phi_x.length; i++) {
+      phi_x[i] *= qX[i];
+    }
+  }
+
+  return phi_x;
+}
+
+List<double> convolveSame(List<double> array, List<double> kernel) {
+  final int arrayLen = array.length;
+  final int kernelLen = kernel.length;
+  final int halfKernel = kernelLen ~/ 2;
+  final List<double> result = List<double>.filled(arrayLen, 0.0);
+
+  // Pad the array virtually for 'same' mode
+  for (int i = 0; i < arrayLen; i++) {
+    double sum = 0.0;
+    for (int j = 0; j < kernelLen; j++) {
+      // The array index to access, accounting for kernel offset
+      final int arrayIndex = i - halfKernel + j;
+
+      // Check bounds: equivalent to zero-padding outside the original array
+      if (arrayIndex >= 0 && arrayIndex < arrayLen) {
+        // Note: The kernel is typically flipped for standard mathematical convolution,
+        // but NumPy's convolve handles this internally. For manual implementation,
+        // we use the kernel in its calculated order.
+        sum += array[arrayIndex] * kernel[kernelLen - 1 - j];
+      }
+    }
+    result[i] = sum;
+  }
+  return result;
+}
+
+// A helper function to extract a column (R=0, G=1, B=2)
+List<double> getColumn(List<Float64List> pixels, int colIndex) {
+  return pixels.map((row) => row[colIndex]).toList();
+}
+
+// A helper function to update a column with convolved values
+void setColumn(List<Float64List> pixels, int colIndex, List<double> newValues) {
+  for (int i = 0; i < pixels.length; i++) {
+    pixels[i][colIndex] = newValues[i];
+  }
+}

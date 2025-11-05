@@ -4,14 +4,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:ledfx/src/devices/device.dart';
+import 'package:ledfx/src/devices/udp.dart';
 import 'package:ledfx/ui/home_body.dart';
 
 class DDPDevice extends UDPDevice {
-  static const int VER1 = 0x01; // DDP Version 1
-  static const int PUSH = 0x80; // PUSH flag (used for 'last' packet)
+  static const int VER1 = 0x40; // DDP Version 1
+  static const int PUSH = 0x01; // PUSH flag (used for 'last' packet)
   static const int DATATYPE = 0x01; // Data Type (e.g., RGB data)
-  static const int SOURCE = 0x00; // Source ID
+  static const int SOURCE = 0x01; // Source ID
   static const int MAX_PIXELS =
       480; // Example max data length per packet (adjust if needed)
   static const int MAX_DATALEN =
@@ -143,24 +143,26 @@ class DDPDevice extends UDPDevice {
     final headerBuffer = ByteData(headerSize);
 
     // 1. VER1 | PUSH/0 (1 byte: B)
-    int headerFlags = VER1 | (last ? PUSH : 0);
-    headerBuffer.setUint8(0, headerFlags);
+    int headerFlags = VER1 | (last ? VER1 : PUSH);
+    headerBuffer.setUint8(0, 0x01);
 
     // 2. sequence (1 byte: B)
-    headerBuffer.setUint8(1, sequence);
+    headerBuffer.setUint8(1, 0x01);
 
     // 3. DATATYPE (1 byte: B)
-    headerBuffer.setUint8(2, DATATYPE);
+    headerBuffer.setUint16(2, 0, Endian.big);
 
     // 4. SOURCE (1 byte: B)
-    headerBuffer.setUint8(3, SOURCE);
+    // headerBuffer.setUint8(3, SOURCE);
+    headerBuffer.setUint8(5, 0);
 
     // 5. total data length (packet_count * MAX_DATALEN) (4 bytes: L - unsigned long)
     // Note: DDP uses a 4-byte total length field.
     int totalDataLength = packetCount * MAX_DATALEN;
-    headerBuffer.setUint32(4, totalDataLength, Endian.big);
+    // headerBuffer.setUint32(4, totalDataLength, Endian.big);
 
     // 6. bytes_length (actual data size in this packet) (2 bytes: H - unsigned short)
+    headerBuffer.setUint16(6, 10, Endian.big);
     headerBuffer.setUint16(8, bytesLength, Endian.big);
 
     // --- Construct the final UDP packet ---
@@ -173,6 +175,6 @@ class DDPDevice extends UDPDevice {
       ..setAll(headerSize, data); // Copy data
 
     // --- Send the packet ---
-    sock.send(udpData, dest, port);
+    sock.send(udpData.toList(), dest, port);
   }
 }

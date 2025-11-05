@@ -133,6 +133,32 @@ abstract class Effect {
 
       // TODO: Blur
 
+      if (config.blur != 0 && pixelCount > 3) {
+        final List<double> kernel = gaussianKernel1d(
+          config.blur,
+          0,
+          tmpPixels.length,
+        );
+
+        // R channel
+        // Python: pixels[:, 0] = np.convolve(pixels[:, 0], kernel, mode="same")
+        List<double> rValues = getColumn(tmpPixels, 0);
+        List<double> blurredR = convolveSame(rValues, kernel);
+        setColumn(tmpPixels, 0, blurredR);
+
+        // G channel (Column 1)
+        // Python: pixels[:, 1] = np.convolve(pixels[:, 1], kernel, mode="same")
+        List<double> gValues = getColumn(tmpPixels, 1);
+        List<double> blurredG = convolveSame(gValues, kernel);
+        setColumn(tmpPixels, 1, blurredG);
+
+        // B channel (Column 2)
+        // Python: pixels[:, 2] = np.convolve(pixels[:, 2], kernel, mode="same")
+        List<double> bValues = getColumn(tmpPixels, 2);
+        List<double> blurredB = convolveSame(bValues, kernel);
+        setColumn(tmpPixels, 2, blurredB);
+      }
+
       return tmpPixels;
     }
 

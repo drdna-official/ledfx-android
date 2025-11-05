@@ -148,7 +148,11 @@ class _HomeBodyState extends State<HomeBody> {
                       virtual.setEffect(
                         WavelengthEffect(
                           ledfx: widget.ledfx,
-                          config: EffectConfig(name: "wavelength"),
+                          config: EffectConfig(
+                            name: "wavelength",
+                            mirror: true,
+                            blur: 3.0,
+                          ),
                         ),
                       );
                       setState(() {});
@@ -170,7 +174,7 @@ class _HomeBodyState extends State<HomeBody> {
 
   // The maximum desired width for the dialogue card on large screens
   static const double _cardMaxWidth = 500.0;
-  TextEditingController _address = TextEditingController();
+  TextEditingController _address = TextEditingController(text: "192.168.0.160");
   TextEditingController _type = TextEditingController(text: "wled");
   // Function to show the custom dialogue
   void _showFormDialog() {
@@ -213,12 +217,12 @@ class _HomeBodyState extends State<HomeBody> {
                           labelText: 'DeviceType',
                           border: OutlineInputBorder(),
                         ),
-                        validator: (value) {
-                          if (value != "wled") {
-                            return 'Supported - wled';
-                          }
-                          return null;
-                        },
+                        // validator: (value) {
+                        //   if (value == "wled" || value == "dummy") {
+                        //     return null;
+                        //   }
+                        //   return 'Supported - wled / dummy';
+                        // },
                       ),
                       const SizedBox(height: 15),
                       // Address Field
@@ -242,15 +246,23 @@ class _HomeBodyState extends State<HomeBody> {
                         onPressed: () async {
                           if (_formKey.currentState!.validate()) {
                             try {
-                              await widget.ledfx.devices.addNewDevice(
-                                DeviceConfig(
-                                  pixelCount: 200,
-                                  rgbwLED: false,
-                                  name: "WLED Test",
-                                  type: _type.text,
-                                  address: _address.text,
-                                ),
-                              );
+                              final config = (_type.text == "wled")
+                                  ? DeviceConfig(
+                                      pixelCount: 200,
+                                      rgbwLED: false,
+                                      name: "WLED Test",
+                                      type: _type.text,
+                                      address: _address.text,
+                                    )
+                                  : DeviceConfig(
+                                      pixelCount: 300,
+                                      rgbwLED: false,
+                                      name: "Dummy",
+                                      type: _type.text,
+                                      address: _address.text,
+                                    );
+
+                              await widget.ledfx.devices.addNewDevice(config);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text("Added New Device")),
                               );

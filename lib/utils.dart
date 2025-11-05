@@ -29,18 +29,11 @@ import 'dart:io';
 ///
 /// Throws a [SocketException] if the address cannot be resolved.
 Future<String> resolveDestination(
-  String address, {
+  String sanitizedAddress, {
   int port = 80,
   Duration timeout = const Duration(seconds: 5),
+  bool checkConnection = false,
 }) async {
-  // 1. Sanitize the Address
-  String sanitizedAddress = address
-      .trim()
-      .toLowerCase()
-      .replaceAll(RegExp(r'https?://'), '')
-      .split('/')
-      .first;
-
   if (sanitizedAddress.isEmpty) {
     throw const SocketException('Invalid or empty address provided.');
   }
@@ -76,23 +69,27 @@ Future<String> resolveDestination(
   }
 
   // 3. Check Reachability (Socket Connection)
-  try {
-    // Attempt to connect to the resolved address on the specified port.
-    // We use timeout to prevent the function from hanging indefinitely.
-    await Socket.connect(hostAddress, port, timeout: timeout);
+  if (checkConnection) {
+    try {
+      // Attempt to connect to the resolved address on the specified port.
+      // We use timeout to prevent the function from hanging indefinitely.
+      await Socket.connect(hostAddress, port, timeout: timeout);
 
-    // Connection was successful, indicating the host is reachable.
+      // Connection was successful, indicating the host is reachable.
+      return sanitizedAddress;
+    } on SocketException {
+      // The SocketException here means the connection failed,
+      // which signifies that the host is NOT reachable on that port.
+      throw SocketException(
+        'Host $sanitizedAddress is resolvable but NOT reachable on port $port.',
+      );
+    } catch (e) {
+      // Catch any other connection errors
+      throw SocketException(
+        'An unknown error occurred during reachability check: $e',
+      );
+    }
+  } else {
     return sanitizedAddress;
-  } on SocketException {
-    // The SocketException here means the connection failed,
-    // which signifies that the host is NOT reachable on that port.
-    throw SocketException(
-      'Host $sanitizedAddress is resolvable but NOT reachable on port $port.',
-    );
-  } catch (e) {
-    // Catch any other connection errors
-    throw SocketException(
-      'An unknown error occurred during reachability check: $e',
-    );
   }
 }
